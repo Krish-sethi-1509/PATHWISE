@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AccountAccess, BusinessModel, type Account } from "./ProductPages";
 import {
   Activity,
   ArrowDownRight,
@@ -6,6 +7,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpen,
+  BriefcaseBusiness,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -49,6 +51,8 @@ type Page =
   | "parent"
   | "success"
   | "about"
+  | "business"
+  | "account"
   | "settings";
 type Checkin = {
   stress: number;
@@ -68,6 +72,7 @@ const navItems: { id: Page; label: string; icon: typeof Home }[] = [
   { id: "parent", label: "Parent view", icon: Users },
   { id: "success", label: "My success", icon: Sparkles },
   { id: "about", label: "Why PATHWISE?", icon: CircleHelp },
+  { id: "business", label: "Business model", icon: BriefcaseBusiness },
 ];
 const initial = {
   tasks: seedTasks,
@@ -111,7 +116,36 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [dark, setDark] = useState(false);
   const [whatIf, setWhatIf] = useState(false);
-  useEffect(() => saveStore(store), [store]);
+  const [account, setAccount] = useState<Account | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const syncTimer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    let active = true;
+    fetch("/api/auth/me").then(async (response) => {
+      if (!response.ok) return;
+      const result = await response.json();
+      const saved = await fetch("/api/state");
+      if (!active) return;
+      setAccount(result.user);
+      if (saved.ok) {
+        const remote = await saved.json();
+        setStore((current) => ({ ...current, ...remote, checkins: current.checkins, planner: { ...initial.planner, ...remote.planner } }));
+      }
+    }).catch(() => {}).finally(() => { if (active) setAuthReady(true); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!authReady) return;
+    saveStore(store);
+    if (account) {
+      window.clearTimeout(syncTimer.current);
+      syncTimer.current = window.setTimeout(() => {
+        const { checkins: _privateCheckins, ...accountState } = store;
+        fetch("/api/state", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(accountState) }).catch(() => {});
+      }, 500);
+    }
+    return () => window.clearTimeout(syncTimer.current);
+  }, [store, account, authReady]);
   useEffect(() => {
     if (toast) {
       const t = setTimeout(() => setToast(""), 2800);
@@ -140,11 +174,24 @@ export default function App() {
     setToast(`${next === "parent" ? "Parent" : "Student"} view is on`);
   };
 
+  const finishAuth = async (user: Account) => {
+    setAccount(user);
+    const response = await fetch("/api/state");
+    if (response.ok) {
+      const remote = await response.json();
+      if (Object.keys(remote).length) setStore((current) => ({ ...current, ...remote, checkins: current.checkins, planner: { ...initial.planner, ...remote.planner } }));
+    }
+    setAuthReady(true);
+    navigate("dashboard");
+    setToast(`Welcome, ${user.name.split(" ")[0]}. Your account is connected.`);
+  };
+
   if (page === "landing")
     return (
       <Landing
         onStart={() => navigate("dashboard")}
         onHow={() => navigate("about")}
+        onSignIn={() => navigate("account")}
       />
     );
   return (
@@ -199,6 +246,9 @@ export default function App() {
               update={update}
               navigate={navigate}
               toast={setToast}
+              account={account}
+              onSignIn={() => navigate("account")}
+              onSignOut={async () => { await fetch("/api/auth/logout", { method: "POST" }); setAccount(null); setToast("You are signed out. This device still has its local demo data."); }}
             />
           )}
           {page === "planner" && (
@@ -219,6 +269,8 @@ export default function App() {
           {page === "parent" && <ParentView store={store} />}
           {page === "success" && <Success store={store} update={update} />}
           {page === "about" && <About />}
+          {page === "business" && <BusinessModel />}
+          {page === "account" && <AccountAccess onComplete={finishAuth} onBack={() => navigate("dashboard")} />}
           {page === "settings" && (
             <Settings
               store={store}
@@ -250,7 +302,7 @@ export default function App() {
 function pageTitle(page: string) {
   return (
     navItems.find((n) => n.id === page)?.label ||
-    (page === "settings" ? "Settings" : "PATHWISE")
+    (page === "settings" ? "Settings" : page === "account" ? "Account" : "PATHWISE")
   );
 }
 function durationMinutes(duration: string) {
@@ -279,9 +331,11 @@ function Brand({ onClick }: { onClick?: () => void }) {
 function Landing({
   onStart,
   onHow,
+  onSignIn,
 }: {
   onStart: () => void;
   onHow: () => void;
+  onSignIn: () => void;
 }) {
   return (
     <div className="landing">
@@ -294,8 +348,8 @@ function Landing({
           <button onClick={onHow}>For families</button>
           <button onClick={onHow}>Why PATHWISE</button>
         </div>
-        <button className="button button-dark landing-signin" onClick={onStart}>
-          Open my path <ArrowRight size={16} />
+        <button className="button button-dark landing-signin" onClick={onSignIn}>
+          Sign in <ArrowRight size={16} />
         </button>
       </nav>
       <section className="hero">
@@ -2683,17 +2737,11 @@ function About() {
 }
 
 function Settings({
-  store,
-  update,
-  dark,
-  setDark,
-  toast,
+  store, update, dark, setDark, toast, account, onSignIn, onSignOut,
 }: {
-  store: Store;
-  update: (p: Partial<Store>) => void;
-  dark: boolean;
-  setDark: (v: boolean) => void;
-  toast: (s: string) => void;
+  store: Store; update: (p: Partial<Store>) => void; dark: boolean;
+  setDark: (v: boolean) => void; toast: (s: string) => void;
+  account: Account | null; onSignIn: () => void; onSignOut: () => void;
 }) {
   return (
     <>
@@ -2708,6 +2756,15 @@ function Settings({
       />
       <div className="settings-layout">
         <section className="panel settings-panel">
+          <div className="settings-section">
+            <span className="field-label">ACCOUNT & SYNC</span>
+            <div className="setting-row">
+              <span className="settings-icon"><Users size={16} /></span>
+              <div><b>{account ? account.name : "Local demo mode"}</b><small>{account ? `${account.email} · progress sync is on` : "Create an account to save plans on this computer."}</small></div>
+              <button className="button button-outline setting-switch" onClick={account ? onSignOut : onSignIn}>{account ? "Sign out" : "Sign in"}</button>
+            </div>
+            <p className="settings-note"><span className="live-dot" />Wellbeing check-ins stay on this device and are never synced to your account.</p>
+          </div>
           <div className="settings-section">
             <span className="field-label">APPEARANCE</span>
             <div className="setting-row">
@@ -2796,8 +2853,7 @@ function Settings({
               </span>
             </div>
             <p className="settings-note">
-              <span className="live-dot" /> Your preferences stay in this
-              browser. PATHWISE doesn't send them to a server.
+              <span className="live-dot" /> {account ? "Study and career progress syncs to this computer's account database. Check-ins remain local." : "Your preferences stay in this browser until you create an account."}
             </p>
             <button
               className="reset-button"
