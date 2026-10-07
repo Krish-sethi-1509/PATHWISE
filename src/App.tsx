@@ -196,7 +196,7 @@ export default function App() {
     const response = await fetch("/api/state");
     if (response.ok) {
       const remote = await response.json();
-      if (Object.keys(remote).length) setStore((current) => ({ ...current, ...remote, tasks: isStarterTasks(remote.tasks) ? [] : (remote.tasks ?? current.tasks), checkins: current.checkins, planner: { ...initial.planner, ...remote.planner } }));
+      if (Object.keys(remote).length) setStore((current) => ({ ...current, ...remote, tasks: isStarterTasks(remote.tasks) ? [] : (remote.tasks ?? current.tasks), interests: isStarterInterests(remote.interests) ? [] : (remote.interests ?? current.interests), checkins: current.checkins, planner: mergePlanner(remote.planner) }));
     }
     setAccount(user);
     setAuthReady(true);
