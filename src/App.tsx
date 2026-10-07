@@ -175,12 +175,13 @@ export default function App() {
   };
 
   const finishAuth = async (user: Account) => {
-    setAccount(user);
+    setAuthReady(false);
     const response = await fetch("/api/state");
     if (response.ok) {
       const remote = await response.json();
       if (Object.keys(remote).length) setStore((current) => ({ ...current, ...remote, checkins: current.checkins, planner: { ...initial.planner, ...remote.planner } }));
     }
+    setAccount(user);
     setAuthReady(true);
     navigate("dashboard");
     setToast(`Welcome, ${user.name.split(" ")[0]}. Your account is connected.`);
