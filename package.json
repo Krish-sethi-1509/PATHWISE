@@ -10,7 +10,7 @@
     "build": "tsc -b && vite build",
     "start": "node server/index.js",
     "preview": "vite preview",
-    "test": "node --test server/*.test.js"
+    "test": "node --test"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
