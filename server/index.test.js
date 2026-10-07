@@ -78,3 +78,12 @@ test("registration validates password length and rejects duplicate email", async
   });
   assert.equal(duplicate.status, 409);
 });
+
+test("registration accepts ordinary email addresses containing the letter s", async () => {
+  const response = await fetch(`${base}/api/auth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Krish Sethi", email: "krishsethi2005@gmail.com", password: "a-long-password-123" }),
+  });
+  assert.equal(response.status, 201);
+});
