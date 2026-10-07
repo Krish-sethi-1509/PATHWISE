@@ -420,7 +420,7 @@ function Landing({
               <div className="preview-brand">
                 <span className="mini-mark" /> pathwise
               </div>
-              <span className="preview-date">WED, OCT 7</span>
+              <span className="preview-date">WORKSPACE PREVIEW</span>
               <span className="preview-avatar">A</span>
             </div>
             <div className="preview-body">
@@ -438,21 +438,14 @@ function Landing({
               </div>
               <div className="preview-stats">
                 <div className="preview-stat">
-                  <small>STUDY GOAL</small>
-                  <strong>
-                    3h 45m <span>/ 5h 30m</span>
-                  </strong>
-                  <div className="mini-track">
-                    <i style={{ width: "68%" }} />
-                  </div>
-                  <small className="muted-note">68% of today's plan</small>
+                  <small>YOUR STUDY PLAN</small>
+                  <strong>Ready when you are</strong>
+                  <p>Choose an exam and build your first plan.</p>
                 </div>
                 <div className="preview-stat readiness-stat">
-                  <small>READINESS</small>
-                  <strong>
-                    Feeling steady <span className="readiness-dot">●</span>
-                  </strong>
-                  <p>Your pace is working.</p>
+                  <small>YOUR CHECK-IN</small>
+                  <strong>Private to you</strong>
+                  <p>Your wellbeing entries stay on this device.</p>
                 </div>
               </div>
               <div className="preview-insight">
@@ -462,36 +455,17 @@ function Landing({
                 <div>
                   <small>A GENTLE NUDGE</small>
                   <p>
-                    You have completed <b>68%</b> of today's goal. Take a
-                    30-minute recovery break before your next session.
+                    Build a plan around the time and energy you have. PATHWISE will show progress as you save and complete your own study blocks.
                   </p>
                 </div>
                 <ArrowUpRight size={15} />
               </div>
               <div className="preview-agenda">
                 <div>
-                  <b>Today's path</b>
-                  <span>3 of 6 complete</span>
+                  <b>Your path</b>
+                  <span>Starts with your choices</span>
                 </div>
-                <div className="agenda-line">
-                  <span className="agenda-check">
-                    <Check size={12} />
-                  </span>
-                  <span>Mathematics</span>
-                  <i>08:00</i>
-                </div>
-                <div className="agenda-line">
-                  <span className="agenda-check">
-                    <Check size={12} />
-                  </span>
-                  <span>Physics</span>
-                  <i>10:00</i>
-                </div>
-                <div className="agenda-line future-agenda">
-                  <span className="agenda-pip" />
-                  <span>Lunch away from your notes</span>
-                  <i>12:00</i>
-                </div>
+                <p className="preview-empty-note">No example schedule is pre-filled. Sign in to create and save your own plan.</p>
               </div>
             </div>
           </div>
@@ -502,7 +476,7 @@ function Landing({
             <div>
               <small>REST IS PART OF THE PLAN</small>
               <p>
-                Your next break is in <b>25 min</b>
+                Build breaks into a plan you can sustain
               </p>
             </div>
           </div>
