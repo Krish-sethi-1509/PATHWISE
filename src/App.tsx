@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AccountAccess, BusinessModel, type Account } from "./ProductPages";
+import { FamilyView, ProgressView } from "./PersonalViews";
 import {
   Activity,
   ArrowDownRight,
@@ -6,6 +8,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpen,
+  BriefcaseBusiness,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -33,7 +36,6 @@ import {
 } from "lucide-react";
 import {
   careerCatalog,
-  initialInterests,
   seedTasks,
   successOptions,
   type StudyTask,
@@ -49,6 +51,8 @@ type Page =
   | "parent"
   | "success"
   | "about"
+  | "business"
+  | "account"
   | "settings";
 type Checkin = {
   stress: number;
@@ -68,24 +72,40 @@ const navItems: { id: Page; label: string; icon: typeof Home }[] = [
   { id: "parent", label: "Parent view", icon: Users },
   { id: "success", label: "My success", icon: Sparkles },
   { id: "about", label: "Why PATHWISE?", icon: CircleHelp },
+  { id: "business", label: "Business model", icon: BriefcaseBusiness },
 ];
 const initial = {
-  tasks: seedTasks,
+  tasks: [],
   checkins: [] as Checkin[],
-  interests: initialInterests,
+  interests: [],
   success: [] as string[],
   showRank: false,
   mode: "student" as "student" | "parent",
   planner: {
-    exam: "JEE",
-    examDate: "2027-04-05",
-    hours: 5.5,
+    exam: "",
+    examDate: "",
+    hours: 4,
     energy: "Medium",
-    weak: ["Physics"],
-    strong: ["Mathematics"] as string[],
+    weak: [] as string[],
+    strong: [] as string[],
   },
 };
 type Store = typeof initial;
+function isStarterTasks(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length !== seedTasks.length) return false;
+  return value.every((task, index) => task?.id === seedTasks[index].id && task?.title === seedTasks[index].title && task?.time === seedTasks[index].time);
+}
+function isStarterInterests(value: unknown): boolean {
+  return Array.isArray(value) && value.length === 2 && value[0] === "Technology" && value[1] === "Mathematics";
+}
+function isStarterPlanner(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const planner = value as Partial<Store["planner"]>;
+  return planner.exam === "JEE" && planner.examDate === "2027-04-05" && planner.hours === 5.5 && Array.isArray(planner.weak) && planner.weak.length === 1 && planner.weak[0] === "Physics" && Array.isArray(planner.strong) && planner.strong.length === 1 && planner.strong[0] === "Mathematics";
+}
+function mergePlanner(value: Partial<Store["planner"]> | undefined) {
+  return isStarterPlanner(value) ? initial.planner : { ...initial.planner, ...value };
+}
 function loadStore(): Store {
   try {
     const saved = JSON.parse(
@@ -94,7 +114,9 @@ function loadStore(): Store {
     return {
       ...initial,
       ...saved,
-      planner: { ...initial.planner, ...saved.planner },
+      tasks: isStarterTasks(saved.tasks) ? [] : (saved.tasks ?? initial.tasks),
+      interests: isStarterInterests(saved.interests) ? [] : (saved.interests ?? initial.interests),
+      planner: mergePlanner(saved.planner),
     };
   } catch {
     return initial;
@@ -111,7 +133,36 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [dark, setDark] = useState(false);
   const [whatIf, setWhatIf] = useState(false);
-  useEffect(() => saveStore(store), [store]);
+  const [account, setAccount] = useState<Account | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const syncTimer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    let active = true;
+    fetch("/api/auth/me").then(async (response) => {
+      if (!response.ok) return;
+      const result = await response.json();
+      const saved = await fetch("/api/state");
+      if (!active) return;
+      setAccount(result.user);
+      if (saved.ok) {
+        const remote = await saved.json();
+        setStore((current) => ({ ...current, ...remote, tasks: isStarterTasks(remote.tasks) ? [] : (remote.tasks ?? current.tasks), interests: isStarterInterests(remote.interests) ? [] : (remote.interests ?? current.interests), checkins: current.checkins, planner: mergePlanner(remote.planner) }));
+      }
+    }).catch(() => {}).finally(() => { if (active) setAuthReady(true); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!authReady) return;
+    saveStore(store);
+    if (account) {
+      window.clearTimeout(syncTimer.current);
+      syncTimer.current = window.setTimeout(() => {
+        const { checkins: _privateCheckins, ...accountState } = store;
+        fetch("/api/state", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(accountState) }).catch(() => {});
+      }, 500);
+    }
+    return () => window.clearTimeout(syncTimer.current);
+  }, [store, account, authReady]);
   useEffect(() => {
     if (toast) {
       const t = setTimeout(() => setToast(""), 2800);
@@ -140,11 +191,25 @@ export default function App() {
     setToast(`${next === "parent" ? "Parent" : "Student"} view is on`);
   };
 
+  const finishAuth = async (user: Account) => {
+    setAuthReady(false);
+    const response = await fetch("/api/state");
+    if (response.ok) {
+      const remote = await response.json();
+      if (Object.keys(remote).length) setStore((current) => ({ ...current, ...remote, tasks: isStarterTasks(remote.tasks) ? [] : (remote.tasks ?? current.tasks), interests: isStarterInterests(remote.interests) ? [] : (remote.interests ?? current.interests), checkins: current.checkins, planner: mergePlanner(remote.planner) }));
+    }
+    setAccount(user);
+    setAuthReady(true);
+    navigate("dashboard");
+    setToast(`Welcome, ${user.name.split(" ")[0]}. Your account is connected.`);
+  };
+
   if (page === "landing")
     return (
       <Landing
         onStart={() => navigate("dashboard")}
         onHow={() => navigate("about")}
+        onSignIn={() => navigate("account")}
       />
     );
   return (
@@ -157,6 +222,7 @@ export default function App() {
         onLanding={() => navigate("landing")}
         mobile={mobileNav}
         onClose={() => setMobileNav(false)}
+        account={account}
       />
       <main className="main-area">
         <header className="topbar">
@@ -177,7 +243,7 @@ export default function App() {
               className="today-pill"
               onClick={() => setToast("You’re viewing your plan for today.")}
             >
-              <span className="live-dot" /> Today, 7 Oct{" "}
+              <span className="live-dot" /> Today, {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" })}{" "}
               <ChevronDown size={13} />
             </button>
             <button
@@ -187,8 +253,8 @@ export default function App() {
             >
               {dark ? <Sun size={17} /> : <Moon size={17} />}
             </button>
-            <button className="avatar" aria-label="Aarav’s profile">
-              A
+            <button className="avatar" aria-label={account ? `${account.name}'s profile` : "Your profile"}>
+              {account?.name?.trim()?.charAt(0).toUpperCase() || "?"}
             </button>
           </div>
         </header>
@@ -199,6 +265,7 @@ export default function App() {
               update={update}
               navigate={navigate}
               toast={setToast}
+              studentName={account?.name || "there"}
             />
           )}
           {page === "planner" && (
@@ -207,7 +274,7 @@ export default function App() {
           {page === "wellbeing" && (
             <Wellbeing store={store} update={update} toast={setToast} />
           )}
-          {page === "progress" && <Progress store={store} update={update} />}
+          {page === "progress" && <ProgressView tasks={store.tasks} checkins={store.checkins} />}
           {page === "careers" && (
             <Careers
               store={store}
@@ -216,9 +283,11 @@ export default function App() {
               setWhatIf={setWhatIf}
             />
           )}
-          {page === "parent" && <ParentView store={store} />}
+          {page === "parent" && <FamilyView tasks={store.tasks} studentName={account?.name || "Student"} />}
           {page === "success" && <Success store={store} update={update} />}
           {page === "about" && <About />}
+          {page === "business" && <BusinessModel />}
+          {page === "account" && <AccountAccess onComplete={finishAuth} onBack={() => navigate("dashboard")} />}
           {page === "settings" && (
             <Settings
               store={store}
@@ -226,6 +295,9 @@ export default function App() {
               dark={dark}
               setDark={setDark}
               toast={setToast}
+              account={account}
+              onSignIn={() => navigate("account")}
+              onSignOut={async () => { await fetch("/api/auth/logout", { method: "POST" }); setAccount(null); setToast("You are signed out. This device still has its local data."); }}
             />
           )}
         </div>
@@ -250,7 +322,7 @@ export default function App() {
 function pageTitle(page: string) {
   return (
     navItems.find((n) => n.id === page)?.label ||
-    (page === "settings" ? "Settings" : "PATHWISE")
+    (page === "settings" ? "Settings" : page === "account" ? "Account" : "PATHWISE")
   );
 }
 function durationMinutes(duration: string) {
@@ -279,9 +351,11 @@ function Brand({ onClick }: { onClick?: () => void }) {
 function Landing({
   onStart,
   onHow,
+  onSignIn,
 }: {
   onStart: () => void;
   onHow: () => void;
+  onSignIn: () => void;
 }) {
   return (
     <div className="landing">
@@ -294,8 +368,8 @@ function Landing({
           <button onClick={onHow}>For families</button>
           <button onClick={onHow}>Why PATHWISE</button>
         </div>
-        <button className="button button-dark landing-signin" onClick={onStart}>
-          Open my path <ArrowRight size={16} />
+        <button className="button button-dark landing-signin" onClick={onSignIn}>
+          Sign in <ArrowRight size={16} />
         </button>
       </nav>
       <section className="hero">
@@ -346,7 +420,7 @@ function Landing({
               <div className="preview-brand">
                 <span className="mini-mark" /> pathwise
               </div>
-              <span className="preview-date">WED, OCT 7</span>
+              <span className="preview-date">WORKSPACE PREVIEW</span>
               <span className="preview-avatar">A</span>
             </div>
             <div className="preview-body">
@@ -354,7 +428,7 @@ function Landing({
                 <div>
                   <small>YOUR WEDNESDAY, IN FOCUS</small>
                   <h3>
-                    Good morning, Aarav<span>.</span>
+                    Good morning, there<span>.</span>
                   </h3>
                   <p>Make room for progress and a little breathing space.</p>
                 </div>
@@ -364,21 +438,14 @@ function Landing({
               </div>
               <div className="preview-stats">
                 <div className="preview-stat">
-                  <small>STUDY GOAL</small>
-                  <strong>
-                    3h 45m <span>/ 5h 30m</span>
-                  </strong>
-                  <div className="mini-track">
-                    <i style={{ width: "68%" }} />
-                  </div>
-                  <small className="muted-note">68% of today's plan</small>
+                  <small>YOUR STUDY PLAN</small>
+                  <strong>Ready when you are</strong>
+                  <p>Choose an exam and build your first plan.</p>
                 </div>
                 <div className="preview-stat readiness-stat">
-                  <small>READINESS</small>
-                  <strong>
-                    Feeling steady <span className="readiness-dot">●</span>
-                  </strong>
-                  <p>Your pace is working.</p>
+                  <small>YOUR CHECK-IN</small>
+                  <strong>Private to you</strong>
+                  <p>Your wellbeing entries stay on this device.</p>
                 </div>
               </div>
               <div className="preview-insight">
@@ -388,36 +455,17 @@ function Landing({
                 <div>
                   <small>A GENTLE NUDGE</small>
                   <p>
-                    You have completed <b>68%</b> of today's goal. Take a
-                    30-minute recovery break before your next session.
+                    Build a plan around the time and energy you have. PATHWISE will show progress as you save and complete your own study blocks.
                   </p>
                 </div>
                 <ArrowUpRight size={15} />
               </div>
               <div className="preview-agenda">
                 <div>
-                  <b>Today's path</b>
-                  <span>3 of 6 complete</span>
+                  <b>Your path</b>
+                  <span>Starts with your choices</span>
                 </div>
-                <div className="agenda-line">
-                  <span className="agenda-check">
-                    <Check size={12} />
-                  </span>
-                  <span>Mathematics</span>
-                  <i>08:00</i>
-                </div>
-                <div className="agenda-line">
-                  <span className="agenda-check">
-                    <Check size={12} />
-                  </span>
-                  <span>Physics</span>
-                  <i>10:00</i>
-                </div>
-                <div className="agenda-line future-agenda">
-                  <span className="agenda-pip" />
-                  <span>Lunch away from your notes</span>
-                  <i>12:00</i>
-                </div>
+                <p className="preview-empty-note">No example schedule is pre-filled. Sign in to create and save your own plan.</p>
               </div>
             </div>
           </div>
@@ -428,7 +476,7 @@ function Landing({
             <div>
               <small>REST IS PART OF THE PLAN</small>
               <p>
-                Your next break is in <b>25 min</b>
+                Build breaks into a plan you can sustain
               </p>
             </div>
           </div>
@@ -597,6 +645,7 @@ function Sidebar({
   onLanding,
   mobile,
   onClose,
+  account,
 }: {
   active: Page;
   onNavigate: (p: Page) => void;
@@ -605,6 +654,7 @@ function Sidebar({
   onLanding: () => void;
   mobile: boolean;
   onClose: () => void;
+  account: Account | null;
 }) {
   return (
     <aside className={`sidebar ${mobile ? "sidebar-open" : ""}`}>
@@ -619,10 +669,10 @@ function Sidebar({
         </button>
       </div>
       <div className="workspace-select">
-        <span className="workspace-avatar">A</span>
+        <span className="workspace-avatar">{account?.name?.trim()?.charAt(0).toUpperCase() || "?"}</span>
         <span>
-          <b>Aarav's space</b>
-          <small>JEE · Class 12</small>
+          <b>{account ? `${account.name}'s space` : "Your study space"}</b>
+          <small>{account ? "Personal workspace" : "Sign in to save your path"}</small>
         </span>
         <ChevronDown size={14} />
       </div>
@@ -752,294 +802,85 @@ function Metric({
     </div>
   );
 }
-function Dashboard({
-  store,
-  update,
-  navigate,
-  toast,
-}: {
-  store: Store;
-  update: (p: Partial<Store>) => void;
-  navigate: (p: Page) => void;
-  toast: (s: string) => void;
+function Dashboard({ store, update, navigate, toast, studentName }: {
+  store: Store; update: (p: Partial<Store>) => void; navigate: (p: Page) => void;
+  toast: (s: string) => void; studentName: string;
 }) {
-  const done = store.tasks.filter((t) => t.done).length,
-    completedMinutes = store.tasks
-      .filter((t) => t.done && t.kind !== "break")
-      .reduce((sum, task) => sum + durationMinutes(task.duration), 0),
-    progress = Math.min(100, Math.round((completedMinutes / 330) * 100));
+  const done = store.tasks.filter((task) => task.done).length;
+  const completedMinutes = store.tasks.filter((task) => task.done && task.kind !== "break").reduce((sum, task) => sum + durationMinutes(task.duration), 0);
+  const targetMinutes = Math.max(1, store.planner.hours * 60);
+  const progress = Math.min(100, Math.round((completedMinutes / targetMinutes) * 100));
+  const latest = store.checkins[store.checkins.length - 1];
+  const focus = store.tasks.find((task) => !task.done && task.kind !== "break");
+  const today = new Date();
   const toggle = (id: number) => {
-    const tasks = store.tasks.map((t) =>
-      t.id === id ? { ...t, done: !t.done } : t,
-    );
+    const tasks = store.tasks.map((task) => task.id === id ? { ...task, done: !task.done } : task);
     update({ tasks });
-    toast(
-      tasks.find((t) => t.id === id)?.done
-        ? "Nice work. That’s one step in your path."
-        : "Task moved back to your plan.",
-    );
+    toast(tasks.find((task) => task.id === id)?.done ? "Nice work. That’s one step in your path." : "Task moved back to your plan.");
   };
   return (
     <>
       <PageHead
-        eyebrow="WEDNESDAY, 7 OCTOBER"
-        title={
-          <>
-            Good morning, Aarav<span className="accent-dot">.</span>
-          </>
-        }
+        eyebrow={today.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }).toUpperCase()}
+        title={<>Good morning, {studentName}<span className="accent-dot">.</span></>}
         subtitle="Here's your path for today. Keep it steady, keep it yours."
-        action={
-          <button
-            className="button button-outline"
-            onClick={() => navigate("planner")}
-          >
-            <Plus size={16} /> Adjust today's plan
-          </button>
-        }
+        action={<button className="button button-outline" onClick={() => navigate("planner")}><Plus size={16} /> Adjust today's plan</button>}
       />
       <div className="dash-layout">
         <div className="dash-main">
           <div className="metric-grid">
-            <Metric
-              label="TODAY'S STUDY GOAL"
-              value={formatDuration(completedMinutes)}
-              change={`${progress}% of your 5h 30m plan`}
-              icon={Clock3}
-            />
-            <Metric
-              label="WEEKLY CONSISTENCY"
-              value="6 days"
-              change="Your most consistent week yet"
-              icon={Flame}
-              tone="amber"
-            />
-            <Metric
-              label="READINESS"
-              value="Feeling steady"
-              change="Last check-in · this morning"
-              icon={Heart}
-              tone="coral"
-            />
+            <Metric label="TODAY'S STUDY GOAL" value={formatDuration(completedMinutes)} change={store.tasks.length ? `${progress}% of your ${store.planner.hours}h plan` : "Create a plan to begin"} icon={Clock3} />
+            <Metric label="PLAN STEPS" value={`${done} / ${store.tasks.length}`} change={store.tasks.length ? "Steps completed today" : "No plan saved yet"} icon={Flame} tone="amber" />
+            <Metric label="LATEST CHECK-IN" value={latest ? `${latest.energy}/10 energy` : "Not checked in"} change={latest ? `Stress ${latest.stress}/10 · ${latest.date}` : "Your wellbeing data stays private"} icon={Heart} tone="coral" />
           </div>
           <section className="panel today-panel">
-            <SectionHead
-              title="Today's path"
-              detail={`${done} of ${store.tasks.length} steps complete`}
-              action={
-                <button
-                  className="quiet-icon"
-                  aria-label="More options"
-                  onClick={() =>
-                    toast("Your full day is right here, in one calm view.")
-                  }
-                >
-                  <MoreHorizontal size={18} />
-                </button>
-              }
-            />
-            <div className="today-progress">
-              <div className="progress-track">
-                <i style={{ width: `${progress}%` }} />
-              </div>
-              <span>{progress}%</span>
-            </div>
-            <div className="timeline">
-              {store.tasks.map((task, index) => (
-                <TaskRow
-                  task={task}
-                  key={task.id}
-                  isLast={index === store.tasks.length - 1}
-                  onToggle={() => toggle(task.id)}
-                />
-              ))}
-            </div>
-            <button
-              className="text-link plan-link"
-              onClick={() => navigate("planner")}
-            >
-              Open your weekly plan <ArrowRight size={15} />
-            </button>
+            <SectionHead title="Today's path" detail={store.tasks.length ? `${done} of ${store.tasks.length} steps complete` : "Your schedule will appear here after you create a plan"} />
+            {store.tasks.length > 0 ? <>
+              <div className="today-progress"><div className="progress-track"><i style={{ width: `${progress}%` }} /></div><span>{progress}%</span></div>
+              <div className="timeline">{store.tasks.map((task, index) => <TaskRow task={task} key={task.id} isLast={index === store.tasks.length - 1} onToggle={() => toggle(task.id)} />)}</div>
+            </> : <div className="path-empty-state"><span className="field-label">START WITH YOUR REAL SCHEDULE</span><p>Add your exam, available hours and focus subjects to build your first plan.</p></div>}
+            <button className="text-link plan-link" onClick={() => navigate("planner")}>{store.tasks.length ? "Edit your study plan" : "Create your first plan"} <ArrowRight size={15} /></button>
           </section>
           <div className="insight-panel">
-            <div className="insight-mark">
-              <Sparkles size={18} />
-            </div>
+            <div className="insight-mark"><Sparkles size={18} /></div>
             <div className="insight-content">
-              <span>PATHWISE INSIGHT</span>
-              <p>
-                Your accuracy is improving faster than your topic completion.
-                Try finishing fewer topics deeply before adding new ones.
-              </p>
-              <small>
-                Based on your recent mock reviews ·{" "}
-                <button onClick={() => navigate("progress")}>
-                  See your progress
-                </button>
-              </small>
+              <span>YOUR PATHWISE SUMMARY</span>
+              <p>{store.tasks.length ? `You have completed ${done} of ${store.tasks.length} steps in today's plan. Your progress updates as you mark tasks complete.` : "Your progress summary will grow from the plans and check-ins you choose to save."}</p>
+              <small>Calculated from your saved PATHWISE activity · <button onClick={() => navigate("progress")}>See your progress</button></small>
             </div>
-            <div className="insight-art">
-              <div className="insight-orbit">
-                <span />
-              </div>
-            </div>
+            <div className="insight-art"><div className="insight-orbit"><span /></div></div>
           </div>
           <div className="bottom-cards">
-            <button
-              className="mini-action-card"
-              onClick={() => navigate("wellbeing")}
-            >
-              <span className="action-card-icon green">
-                <Heart size={17} />
-              </span>
-              <span>
-                <b>Pause for a check-in</b>
-                <small>A quick read on how you're doing</small>
-              </span>
-              <ArrowRight size={16} />
-            </button>
-            <button
-              className="mini-action-card"
-              onClick={() => navigate("careers")}
-            >
-              <span className="action-card-icon lilac">
-                <Compass size={17} />
-              </span>
-              <span>
-                <b>Explore a different path</b>
-                <small>Your future has more than one route</small>
-              </span>
-              <ArrowRight size={16} />
-            </button>
+            <button className="mini-action-card" onClick={() => navigate("wellbeing")}><span className="action-card-icon green"><Heart size={17} /></span><span><b>Pause for a check-in</b><small>A quick read on how you're doing</small></span><ArrowRight size={16} /></button>
+            <button className="mini-action-card" onClick={() => navigate("careers")}><span className="action-card-icon lilac"><Compass size={17} /></span><span><b>Explore a different path</b><small>Your future has more than one route</small></span><ArrowRight size={16} /></button>
           </div>
         </div>
         <aside className="dash-rail">
           <div className="panel focus-panel">
-            <div className="rail-label">
-              TODAY AT A GLANCE <MoreHorizontal size={17} />
-            </div>
-            <div className="focus-date">
-              <b>07</b>
-              <span>
-                OCT
-                <br />
-                <small>WEDNESDAY</small>
-              </span>
-              <span className="focus-month">2026</span>
-            </div>
-            <div className="focus-line" />
-            <div className="focus-label">CURRENT FOCUS</div>
-            <div className="focus-subject">
-              <span className="subject-icon physics">Φ</span>
-              <span>
-                <b>Physics</b>
-                <small>Rotational motion</small>
-              </span>
-              <ArrowUpRight size={15} />
-            </div>
-            <div className="focus-meta">
-              <span>
-                <Clock3 size={13} /> 75 min block
-              </span>
-              <span>
-                <span className="tiny-dot" /> In progress
-              </span>
-            </div>
+            <div className="rail-label">TODAY AT A GLANCE <CalendarDays size={15} /></div>
+            <div className="focus-date"><b>{today.toLocaleDateString("en-GB", { day: "2-digit" })}</b><span>{today.toLocaleDateString("en-GB", { month: "short" }).toUpperCase()}<br/><small>{today.toLocaleDateString("en-GB", { weekday: "long" }).toUpperCase()}</small></span><span className="focus-month">{today.getFullYear()}</span></div>
+            <div className="focus-line" /><div className="focus-label">NEXT STUDY BLOCK</div>
+            <div className="focus-subject"><span className="subject-icon physics">◷</span><span><b>{focus?.title || "No study block"}</b><small>{focus?.detail || "Create a plan to see your next task."}</small></span><ArrowUpRight size={15} /></div>
+            {focus && <div className="focus-meta"><span><Clock3 size={13} /> {focus.duration}</span><span><span className="tiny-dot" /> Planned</span></div>}
           </div>
           <div className="readiness-card">
-            <div className="readiness-card-head">
-              <span>YOUR READINESS</span>
-              <span className="readiness-status">
-                <i /> Steady
-              </span>
-            </div>
-            <div className="readiness-score">
-              <span>7</span>
-              <small>/10</small>
-              <div>
-                <b>Good energy today</b>
-                <p>Enough in the tank to focus, with room to pause.</p>
-              </div>
-            </div>
-            <div className="readiness-meta">
-              <span>ENERGY</span>
-              <b>7 / 10</b>
-              <i />
-              <span>SLEEP</span>
-              <b>7h 20m</b>
-            </div>
-            <button onClick={() => navigate("wellbeing")}>
-              Check in with yourself <ArrowRight size={14} />
-            </button>
+            <div className="readiness-card-head"><span>YOUR LATEST CHECK-IN</span><span className="readiness-status"><i />{latest ? "Saved locally" : "Private"}</span></div>
+            {latest ? <><div className="readiness-score"><span>{latest.energy}</span><small>/10</small><div><b>Your energy</b><p>Stress {latest.stress}/10 · confidence {latest.confidence}/10</p></div></div><div className="readiness-meta"><span>SLEEP</span><b>{latest.sleep}h</b><i/><span>DATE</span><b>{latest.date}</b></div></> : <div className="path-empty-state"><p>No check-in has been saved. Add one whenever it feels useful.</p></div>}
+            <button onClick={() => navigate("wellbeing")}>{latest ? "Update your check-in" : "Check in with yourself"} <ArrowRight size={14} /></button>
           </div>
           <div className="upcoming-card">
-            <span className="rail-label">
-              COMING UP <CalendarDays size={15} />
-            </span>
-            <div className="upcoming-row">
-              <span className="upcoming-icon">
-                <Target size={17} />
-              </span>
-              <span>
-                <b>Full-length mock</b>
-                <small>Saturday, 10 Oct · 9:00 am</small>
-              </span>
-            </div>
-            <p>
-              Three days away. Your planner has time for a light review before
-              then.
-            </p>
-            <button onClick={() => navigate("planner")}>
-              View study plan <ArrowRight size={14} />
-            </button>
+            <span className="rail-label">YOUR EXAM TARGET <Target size={15} /></span>
+            <div className="upcoming-row"><span className="upcoming-icon"><CalendarDays size={17} /></span><span><b>{store.planner.exam || "Choose your exam"}</b><small>{store.planner.examDate ? new Date(store.planner.examDate + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Add your target date in My plan"}</small></span></div>
+            <p>This date comes from your planner settings.</p><button onClick={() => navigate("planner")}>Update exam target <ArrowRight size={14} /></button>
           </div>
           <div className="rank-detox-mini">
-            <div className="rank-mini-top">
-              <span className="action-card-icon peach">
-                <Sparkles size={15} />
-              </span>
-              <b>Rank Detox</b>
-              <button
-                className={`toggle ${store.showRank ? "checked" : ""}`}
-                onClick={() => update({ showRank: !store.showRank })}
-                aria-label={`${store.showRank ? "Hide" : "Show"} my rank`}
-              >
-                <i />
-              </button>
-            </div>
-            <p>
-              {store.showRank
-                ? "Rank is visible to you. Your progress tells a fuller story."
-                : "Your rank is tucked away. See the growth that a number can’t measure."}
-            </p>
-            <button
-              className="text-link"
-              onClick={() => update({ showRank: !store.showRank })}
-            >
-              {store.showRank ? "Turn rank off" : "See progress beyond rank"}{" "}
-              <ArrowRight size={13} />
-            </button>
+            <div className="rank-mini-top"><span className="action-card-icon peach"><Sparkles size={15} /></span><b>Rank Detox</b><button className={`toggle ${store.showRank ? "checked" : ""}`} onClick={() => update({ showRank: !store.showRank })} aria-label={`${store.showRank ? "Hide" : "Show"} rank`}><i /></button></div>
+            <p>{store.showRank ? "You can add a mock result in Progress when you are ready." : "Keep your focus on the work and growth that matter to you."}</p>
+            <button className="text-link" onClick={() => navigate("progress")}>Open progress <ArrowRight size={13} /></button>
           </div>
         </aside>
       </div>
-      <div className="loop-strip">
-        <span>YOUR PREPARATION LOOP</span>
-        {[
-          "Check in",
-          "Understand",
-          "Plan",
-          "Study",
-          "Measure",
-          "Recover",
-          "Explore",
-          "Adapt",
-        ].map((x, i) => (
-          <span key={x} className={i === 2 ? "loop-current" : ""}>
-            {x}
-            {i < 7 && <i>→</i>}
-          </span>
-        ))}
-      </div>
+      <div className="loop-strip"><span>YOUR PREPARATION LOOP</span>{["Check in", "Understand", "Plan", "Study", "Measure", "Recover", "Explore", "Adapt"].map((step, index) => <span key={step} className={index === 2 ? "loop-current" : ""}>{step}{index < 7 && <i>→</i>}</span>)}</div>
     </>
   );
 }
@@ -1145,6 +986,7 @@ function Planner({
             onChange={(e) => setPlan("exam", e.target.value)}
             className="select-field"
           >
+            <option value="">Choose an exam</option>
             {["JEE", "NEET", "CET", "CUET"].map((x) => (
               <option key={x}>{x}</option>
             ))}
@@ -1236,7 +1078,7 @@ function Planner({
             <Sparkles size={16} /> Build my study plan <ArrowRight size={16} />
           </button>
           <small className="privacy-note">
-            Your preferences stay on this device.
+            Your plan settings sync to your local account; wellbeing check-ins stay on this device.
           </small>
         </div>
         <div className="planner-results">
@@ -1246,19 +1088,16 @@ function Planner({
                 <span className="eyebrow-line" />
                 {generated ? "YOUR PLAN IS READY" : "A STARTING POINT"}
               </div>
-              <h2>Wednesday, 7 Oct</h2>
+              <h2>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</h2>
               <p>
                 {plan.hours} focused hours · {plan.energy.toLowerCase()} energy
                 · {plan.exam} prep ·{" "}
-                {new Date(plan.examDate + "T12:00:00").toLocaleDateString(
-                  "en-GB",
-                  { day: "numeric", month: "short", year: "numeric" },
-                )}
+                {plan.examDate ? new Date(plan.examDate + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "target date not set"}
               </p>
             </div>
             <div className="result-date">
-              <b>07</b>
-              <span>OCT</span>
+              <b>{plan.examDate ? new Date(plan.examDate + "T12:00:00").toLocaleDateString("en-GB", { day: "2-digit" }) : "--"}</b>
+              <span>{plan.examDate ? new Date(plan.examDate + "T12:00:00").toLocaleDateString("en-GB", { month: "short" }).toUpperCase() : "TARGET"}</span>
             </div>
           </div>
           <div className="plan-summary">
@@ -1356,8 +1195,26 @@ function Planner({
           <button
             className="button button-dark save-plan"
             onClick={() => {
-              update({ tasks: seedTasks });
-              toast("Plan added to your PATHWISE day.");
+              const items = [
+                { subject: plan.weak[0] || "Physics", hours: phys, focus: "Focused practice" },
+                { subject: plan.weak[1] || "Chemistry", hours: chem, focus: "Active recall" },
+                { subject: plan.strong[0] || "Mathematics", hours: maths, focus: "Mixed practice" },
+              ];
+              let cursor = 9 * 60;
+              const clock = (minutes: number) => String(Math.floor(minutes / 60) % 24).padStart(2, "0") + ":" + String(minutes % 60).padStart(2, "0");
+              const idBase = Date.now();
+              const tasks: StudyTask[] = [];
+              items.forEach((item, index) => {
+                const minutes = Math.max(30, Math.round(item.hours * 60));
+                tasks.push({ id: idBase + index * 2, time: clock(cursor), title: item.subject, detail: (plan.exam || "Study") + " · " + item.focus, duration: formatDuration(minutes), kind: "study", done: false });
+                cursor += minutes;
+                if (index < items.length - 1) {
+                  tasks.push({ id: idBase + index * 2 + 1, time: clock(cursor), title: "Recovery break", detail: "Step away and reset", duration: "15 min", kind: "break", done: false });
+                  cursor += 15;
+                }
+              });
+              update({ tasks });
+              toast("Your personalized plan was added to today.");
             }}
           >
             Add plan to my day <ArrowRight size={15} />
@@ -1663,312 +1520,6 @@ function SliderQuestion({
   );
 }
 
-function Progress({
-  store,
-  update,
-}: {
-  store: Store;
-  update: (p: Partial<Store>) => void;
-}) {
-  return (
-    <>
-      <PageHead
-        eyebrow="YOUR GROWTH, IN CONTEXT"
-        title={
-          <>
-            Progress is more than a <em>number.</em>
-          </>
-        }
-        subtitle="A wider view of how you're learning, showing up and taking care of yourself."
-        action={
-          <div className="rank-toggle-wrap">
-            <span>Rank Detox</span>
-            <button
-              className={`toggle ${store.showRank ? "checked" : ""}`}
-              onClick={() => update({ showRank: !store.showRank })}
-              aria-label="Toggle rank visibility"
-            >
-              <i />
-            </button>
-            <small>{store.showRank ? "Rank on" : "Rank off"}</small>
-          </div>
-        }
-      />
-      <div className="progress-top-grid">
-        <div className="mastery-card">
-          <div className="mastery-copy">
-            <span>CONCEPT MASTERY</span>
-            <strong>
-              76<span>%</span>
-            </strong>
-            <p>You're building a solid foundation, one concept at a time.</p>
-            <span className="mastery-change">
-              <ArrowUpRight size={14} /> 4 points this month
-            </span>
-          </div>
-          <div className="mastery-visual">
-            <div className="mastery-ring">
-              <div>
-                <span>76%</span>
-                <small>MASTERY</small>
-              </div>
-            </div>
-            <span className="mastery-label">
-              A strong base
-              <br />
-              to build on
-            </span>
-          </div>
-        </div>
-        <div className="beyond-card">
-          <div className="beyond-top">
-            <span className="action-card-icon peach">
-              <Sparkles size={16} />
-            </span>
-            <span>PROGRESS BEYOND RANK</span>
-          </div>
-          {[
-            { n: "Consistency", v: 84 },
-            { n: "Confidence", v: 71 },
-            { n: "Recovery", v: 68 },
-          ].map((x) => (
-            <div className="beyond-row" key={x.n}>
-              <div>
-                <span>{x.n}</span>
-                <b>{x.v}%</b>
-              </div>
-              <div className="progress-track">
-                <i style={{ width: `${x.v}%` }} />
-              </div>
-            </div>
-          ))}
-          {store.showRank && (
-            <div className="rank-exposed">
-              <span>YOUR LAST MOCK RANK</span>
-              <b>12,493</b>
-              <small>
-                A single test snapshot. The picture above shows more.
-              </small>
-            </div>
-          )}
-          <div className="rank-note">
-            <span className="rank-note-mark">✳</span>Rank can show where you
-            stood in one test. It can’t show what you’ve learned, how resilient
-            you are, or which path is right for you.
-          </div>
-        </div>
-      </div>
-      <div className="analytics-grid">
-        <div className="panel chart-panel">
-          <SectionHead
-            title="Marks vs effort"
-            detail="Recent weeks · a fuller picture of your prep"
-          />
-          <div className="chart-keys">
-            <span>
-              <i className="chart-key marks" />
-              Mock accuracy
-            </span>
-            <span>
-              <i className="chart-key effort" />
-              Study hours
-            </span>
-          </div>
-          <div className="dual-chart">
-            <div className="y-labels">
-              <span>100</span>
-              <span>75</span>
-              <span>50</span>
-              <span>25</span>
-              <span>0</span>
-            </div>
-            <svg
-              viewBox="0 0 620 210"
-              preserveAspectRatio="none"
-              role="img"
-              aria-label="Mock accuracy rises gradually while study hours stay steady"
-            >
-              <defs>
-                <linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0" stopColor="#678d78" stopOpacity=".2" />
-                  <stop offset="1" stopColor="#678d78" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              {[18, 58, 98, 138, 178].map((y) => (
-                <line
-                  key={y}
-                  x1="0"
-                  y1={y}
-                  x2="620"
-                  y2={y}
-                  stroke="#eceeea"
-                  strokeDasharray="3 5"
-                />
-              ))}
-              <path
-                d="M8 130 C60 115 73 130 112 107 S177 108 214 91 S280 101 316 77 S382 89 418 60 S480 74 520 50 S581 55 610 31"
-                fill="none"
-                stroke="#6e967d"
-                strokeWidth="3"
-                strokeLinecap="round"
-              />
-              <path
-                d="M8 130 C60 115 73 130 112 107 S177 108 214 91 S280 101 316 77 S382 89 418 60 S480 74 520 50 S581 55 610 31 L610 180 L8 180Z"
-                fill="url(#chartFill)"
-              />
-              <path
-                d="M8 100 C60 89 77 101 112 94 S177 82 214 89 S280 71 316 80 S382 75 418 67 S480 78 520 65 S581 72 610 63"
-                fill="none"
-                stroke="#c8a875"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeDasharray="5 4"
-              />
-              {[
-                [8, 130],
-                [112, 107],
-                [214, 91],
-                [316, 77],
-                [418, 60],
-                [520, 50],
-                [610, 31],
-              ].map(([cx, cy], i) => (
-                <circle
-                  key={i}
-                  cx={cx}
-                  cy={cy}
-                  r="4"
-                  fill="#6e967d"
-                  stroke="white"
-                  strokeWidth="2"
-                />
-              ))}
-            </svg>
-            <div className="x-labels">
-              <span>Sep 9</span>
-              <span>Sep 16</span>
-              <span>Sep 23</span>
-              <span>Sep 30</span>
-              <span>Oct 7</span>
-            </div>
-          </div>
-          <div className="chart-caption">
-            <span className="caption-dot" /> Your accuracy rose while study time
-            stayed more balanced. That's progress worth noticing.
-          </div>
-        </div>
-        <div className="panel subject-panel">
-          <SectionHead
-            title="Subject strengths"
-            detail="Confidence and understanding, at a glance"
-          />
-          {[
-            { n: "Mathematics", v: 82, icon: "∑", cls: "math" },
-            { n: "Physics", v: 74, icon: "Φ", cls: "physics" },
-            { n: "Chemistry", v: 69, icon: "⌬", cls: "chemistry" },
-          ].map((s) => (
-            <div className="subject-strength" key={s.n}>
-              <span className={`plan-subject-icon ${s.cls}`}>{s.icon}</span>
-              <span>
-                <b>{s.n}</b>
-                <small>Concept mastery</small>
-              </span>
-              <div className="strength-track">
-                <i style={{ width: `${s.v}%` }} />
-              </div>
-              <b>{s.v}%</b>
-            </div>
-          ))}
-          <button
-            className="text-link"
-            onClick={() =>
-              window.dispatchEvent(
-                new CustomEvent("pathwise-navigate", { detail: "planner" }),
-              )
-            }
-          >
-            Focus on a subject <ArrowRight size={14} />
-          </button>
-        </div>
-        <div className="panel trend-chart-card">
-          <SectionHead
-            title="Stress vs study load"
-            detail="Your week is giving you useful information"
-          />
-          <div className="trend-chart">
-            <div className="trend-col">
-              <i style={{ height: "65%" }} />
-              <b style={{ height: "30%" }} />
-              <span>M</span>
-            </div>
-            <div className="trend-col">
-              <i style={{ height: "76%" }} />
-              <b style={{ height: "43%" }} />
-              <span>T</span>
-            </div>
-            <div className="trend-col today">
-              <i style={{ height: "61%" }} />
-              <b style={{ height: "27%" }} />
-              <span>W</span>
-            </div>
-            <div className="trend-col">
-              <i style={{ height: "82%" }} />
-              <b style={{ height: "59%" }} />
-              <span>T</span>
-            </div>
-            <div className="trend-col">
-              <i style={{ height: "57%" }} />
-              <b style={{ height: "23%" }} />
-              <span>F</span>
-            </div>
-            <div className="trend-col">
-              <i style={{ height: "48%" }} />
-              <b style={{ height: "20%" }} />
-              <span>S</span>
-            </div>
-            <div className="trend-col">
-              <i style={{ height: "69%" }} />
-              <b style={{ height: "34%" }} />
-              <span>S</span>
-            </div>
-          </div>
-          <div className="chart-legend">
-            <span>
-              <i className="legend-green" />
-              Study load
-            </span>
-            <span>
-              <i className="legend-coral" />
-              Stress
-            </span>
-          </div>
-        </div>
-        <div className="takeaway-card">
-          <span className="takeaway-spark">
-            <Sparkles size={17} />
-          </span>
-          <div>
-            <span>AN OBSERVATION, NOT A JUDGEMENT</span>
-            <h3>More hours didn't mean more progress this week.</h3>
-            <p>
-              You studied 18% more, but your accuracy improved by 2%. Your
-              strongest practice happened on days with slightly fewer hours and
-              a real break in between.
-            </p>
-          </div>
-          <ArrowUpRight size={17} />
-        </div>
-      </div>
-      <div className="rank-bottom-note">
-        <span>YOUR GROWTH BELONGS TO YOU.</span>
-        <p>
-          There’s no leaderboard here. Your path only has to make sense for you.
-        </p>
-      </div>
-    </>
-  );
-}
-
 function Careers({
   store,
   update,
@@ -2253,169 +1804,6 @@ function WhatIfModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ParentView({ store }: { store: Store }) {
-  return (
-    <>
-      <PageHead
-        eyebrow="A CLEARER WAY TO SHOW UP"
-        title={
-          <>
-            Support, don't <em>supervise.</em>
-          </>
-        }
-        subtitle="See the broader picture, then make room for a conversation."
-        action={
-          <div className="privacy-pill">
-            <Users size={15} /> Shared by Aarav · 7 Oct
-          </div>
-        }
-      />
-      <div className="parent-layout">
-        <section className="parent-main">
-          <div className="parent-welcome">
-            <span className="parent-welcome-icon">
-              <Heart size={20} />
-            </span>
-            <div>
-              <span>A NOTE FOR FAMILIES</span>
-              <h2>Being present matters more than having all the answers.</h2>
-              <p>
-                This view shares patterns Aarav has chosen to make visible.
-                Individual study tasks and private check-ins stay private.
-              </p>
-            </div>
-          </div>
-          <div className="parent-metrics">
-            <div>
-              <span>WEEKLY CONSISTENCY</span>
-              <b>
-                6 <small>days</small>
-              </b>
-              <p>
-                <i />A steady week so far
-              </p>
-            </div>
-            <div>
-              <span>ENERGY TREND</span>
-              <b>Mostly steady</b>
-              <p>
-                <i />A little lower yesterday
-              </p>
-            </div>
-            <div>
-              <span>ACADEMIC PROGRESS</span>
-              <b>Moving forward</b>
-              <p>
-                <i />
-                Concept mastery at 76%
-              </p>
-            </div>
-          </div>
-          <div className="parent-trends">
-            <SectionHead
-              title="A week in perspective"
-              detail="Patterns to help you understand, not monitor"
-            />
-            <div className="parent-bars">
-              {[68, 74, 58, 82, 62, 76, 66].map((v, i) => (
-                <div className="parent-bar" key={i}>
-                  <div>
-                    <i style={{ height: `${v}%` }} />
-                    <b style={{ height: `${Math.max(18, v - 27)}%` }} />
-                  </div>
-                  <small>{["M", "T", "W", "T", "F", "S", "S"][i]}</small>
-                </div>
-              ))}
-            </div>
-            <div className="chart-legend">
-              <span>
-                <i className="legend-green" />
-                Energy
-              </span>
-              <span>
-                <i className="legend-coral" />
-                Stress
-              </span>
-              <span>
-                <i className="legend-gold" />
-                Sleep
-              </span>
-            </div>
-          </div>
-          <div className="what-child-needs">
-            <span className="insight-mark">
-              <Sparkles size={17} />
-            </span>
-            <div>
-              <span>WHAT YOUR CHILD MAY NEED RIGHT NOW</span>
-              <h3>Academic progress is stable.</h3>
-              <p>
-                {store.checkins.length
-                  ? "The most recent check-in suggests making room for recovery."
-                  : "Aarav is building consistency. A calm check-in may help you learn what support feels useful."}
-              </p>
-              <div className="suggested-ask">
-                “How can I make this week easier for you?”
-              </div>
-            </div>
-          </div>
-        </section>
-        <aside className="parent-side">
-          <div className="conversation-card">
-            <span className="eyebrow">
-              <span className="eyebrow-line" />
-              HELPFUL CONVERSATIONS
-            </span>
-            <h2>Small changes in how we ask can change what we hear.</h2>
-            <div className="conversation-example good">
-              <span className="conversation-tag">TRY THIS</span>
-              <p>“How are you feeling about the preparation?”</p>
-              <CheckCircle2 size={16} />
-            </div>
-            <div className="conversation-example avoid">
-              <span className="conversation-tag">LET THIS GO</span>
-              <p>“How many hours did you study?”</p>
-              <X size={16} />
-            </div>
-            <div className="conversation-example good">
-              <span className="conversation-tag">TRY THIS</span>
-              <p>“Where do you feel you need support?”</p>
-              <CheckCircle2 size={16} />
-            </div>
-            <div className="conversation-example avoid">
-              <span className="conversation-tag">LET THIS GO</span>
-              <p>“Your cousin is already ahead.”</p>
-              <X size={16} />
-            </div>
-          </div>
-          <div className="parent-privacy">
-            <span>
-              <Users size={16} />
-            </span>
-            <div>
-              <b>Respect their space</b>
-              <p>
-                This view shares broad patterns, not a minute-by-minute log.
-                Trust makes honest conversations possible.
-              </p>
-            </div>
-          </div>
-          <div className="parent-reflection">
-            <span className="action-card-icon peach">
-              <Heart size={15} />
-            </span>
-            <p>
-              <b>One thing they might remember</b>
-              <br />
-              “I know your future is more than one exam result.”
-            </p>
-          </div>
-        </aside>
-      </div>
-    </>
-  );
-}
-
 function Success({
   store,
   update,
@@ -2423,15 +1811,7 @@ function Success({
   store: Store;
   update: (p: Partial<Store>) => void;
 }) {
-  const dimensions = [
-    ["LEARNING", 78],
-    ["CONSISTENCY", 84],
-    ["WELLBEING", 71],
-    ["CURIOSITY", 92],
-    ["CONFIDENCE", 67],
-    ["RESILIENCE", 80],
-    ["CAREER AWARENESS", 64],
-  ];
+  const dimensions = successOptions.slice(0, 7).map((name) => [name.toUpperCase(), store.success.includes(name)] as const);
   const toggle = (x: string) =>
     update({
       success: store.success.includes(x)
@@ -2478,7 +1858,7 @@ function Success({
                 <div className={`constellation-node node-${i}`} key={x[0]}>
                   <span className="node-star">✳</span>
                   <span className="node-label">{x[0]}</span>
-                  <b>{x[1]}%</b>
+                  <b>{x[1] ? "Chosen" : "Explore"}</b>
                 </div>
               ))}
               <svg
@@ -2491,9 +1871,9 @@ function Success({
             </div>
             <div className="constellation-caption">
               <span>
-                <i />A few strengths showing up in your journey
+                <i />Values you selected for your own definition of success
               </span>
-              <span>Not a ranking. Just a reflection.</span>
+              <span>No score. No ranking. Just your choices.</span>
             </div>
           </div>
           <div className="success-quote">
@@ -2683,17 +2063,11 @@ function About() {
 }
 
 function Settings({
-  store,
-  update,
-  dark,
-  setDark,
-  toast,
+  store, update, dark, setDark, toast, account, onSignIn, onSignOut,
 }: {
-  store: Store;
-  update: (p: Partial<Store>) => void;
-  dark: boolean;
-  setDark: (v: boolean) => void;
-  toast: (s: string) => void;
+  store: Store; update: (p: Partial<Store>) => void; dark: boolean;
+  setDark: (v: boolean) => void; toast: (s: string) => void;
+  account: Account | null; onSignIn: () => void; onSignOut: () => void;
 }) {
   return (
     <>
@@ -2708,6 +2082,15 @@ function Settings({
       />
       <div className="settings-layout">
         <section className="panel settings-panel">
+          <div className="settings-section">
+            <span className="field-label">ACCOUNT & SYNC</span>
+            <div className="setting-row">
+              <span className="settings-icon"><Users size={16} /></span>
+              <div><b>{account ? account.name : "Local demo mode"}</b><small>{account ? `${account.email} · progress sync is on` : "Create an account to save plans on this computer."}</small></div>
+              <button className="button button-outline setting-switch" onClick={account ? onSignOut : onSignIn}>{account ? "Sign out" : "Sign in"}</button>
+            </div>
+            <p className="settings-note"><span className="live-dot" />Wellbeing check-ins stay on this device and are never synced to your account.</p>
+          </div>
           <div className="settings-section">
             <span className="field-label">APPEARANCE</span>
             <div className="setting-row">
@@ -2757,7 +2140,7 @@ function Settings({
                 <b>Current experience</b>
                 <small>
                   {store.mode === "student"
-                    ? "Student view · Aarav’s workspace"
+                    ? `Student view · ${account?.name || "your"} workspace`
                     : "Parent view · shared weekly patterns"}
                 </small>
               </div>
@@ -2796,29 +2179,28 @@ function Settings({
               </span>
             </div>
             <p className="settings-note">
-              <span className="live-dot" /> Your preferences stay in this
-              browser. PATHWISE doesn't send them to a server.
+              <span className="live-dot" /> {account ? "Study and career progress syncs to this computer's account database. Check-ins remain local." : "Your preferences stay in this browser until you create an account."}
             </p>
             <button
               className="reset-button"
               onClick={() => {
                 if (
                   window.confirm(
-                    "Reset PATHWISE to its fictional demo data? Your saved check-ins and choices on this device will be cleared.",
+                    "Clear your saved PATHWISE data from this device and account? Your plan, check-ins, career interests and success choices will be deleted.",
                   )
                 ) {
                   localStorage.removeItem(KEY);
                   update(initial);
                   setDark(false);
-                  toast("PATHWISE has been reset to the demo.");
+                  toast("Your PATHWISE data has been cleared.");
                 }
               }}
             >
               <span>
                 <X size={14} />
               </span>
-              <b>Reset local demo data</b>
-              <small>Clear saved check-ins, plans and preferences.</small>
+              <b>Clear my PATHWISE data</b>
+              <small>Delete saved plans, check-ins and preferences from this device and account.</small>
               <ArrowRight size={14} />
             </button>
           </div>
@@ -2836,9 +2218,9 @@ function Settings({
             </p>
           </div>
           <div className="settings-meta">
-            <span>DEMO PROFILE</span>
-            <p>Aarav · Class 12 · {store.planner.exam}</p>
-            <small>Fictional example for the PATHWISE product demo.</small>
+            <span>ACCOUNT PROFILE</span>
+            <p>{account?.name || "Local student"} · {store.planner.exam || "Choose exam"}</p>
+            <small>{account?.email || "Sign in to sync your study and career progress."}</small>
           </div>
         </aside>
       </div>
