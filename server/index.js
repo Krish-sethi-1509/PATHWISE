@@ -81,7 +81,7 @@ export function createServerApp({ dbPath = process.env.PATHWISE_DB_PATH || join(
         const { name, email, password } = await readBody(req);
         const cleanName = typeof name === "string" ? name.trim() : "";
         const cleanEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
-        if (cleanName.length < 2 || cleanName.length > 80 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(cleanEmail) || typeof password !== "string" || password.length < 12 || password.length > 128) return send(res, 400, { error: "Enter a name, valid email, and password with at least 12 characters." });
+        if (cleanName.length < 2 || cleanName.length > 80 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) || typeof password !== "string" || password.length < 12 || password.length > 128) return send(res, 400, { error: "Enter a name, valid email, and password with at least 12 characters." });
         const salt = randomBytes(16).toString("hex");
         const id = randomBytes(16).toString("hex");
         try {
