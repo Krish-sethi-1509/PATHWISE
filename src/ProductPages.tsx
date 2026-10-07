@@ -1,3 +1,4 @@
+import "./product-pages.css";
 import { useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, BriefcaseBusiness, Heart, ShieldCheck, Sparkles, Users, Wallet, Waypoints } from "lucide-react";
 
