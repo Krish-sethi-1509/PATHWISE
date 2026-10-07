@@ -99,7 +99,9 @@ function isStarterInterests(value: unknown): boolean {
   return Array.isArray(value) && value.length === 2 && value[0] === "Technology" && value[1] === "Mathematics";
 }
 function isStarterPlanner(value: unknown): boolean {
-  return Boolean(value && value.exam === "JEE" && value.examDate === "2027-04-05" && value.hours === 5.5 && Array.isArray(value.weak) && value.weak.length === 1 && value.weak[0] === "Physics" && Array.isArray(value.strong) && value.strong.length === 1 && value.strong[0] === "Mathematics");
+  if (!value || typeof value !== "object") return false;
+  const planner = value as Partial<Store["planner"]>;
+  return planner.exam === "JEE" && planner.examDate === "2027-04-05" && planner.hours === 5.5 && Array.isArray(planner.weak) && planner.weak.length === 1 && planner.weak[0] === "Physics" && Array.isArray(planner.strong) && planner.strong.length === 1 && planner.strong[0] === "Mathematics";
 }
 function mergePlanner(value: Partial<Store["planner"]> | undefined) {
   return isStarterPlanner(value) ? initial.planner : { ...initial.planner, ...value };
