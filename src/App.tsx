@@ -1,0 +1,2847 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  ArrowDownRight,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CircleHelp,
+  Clock3,
+  Compass,
+  Dna,
+  Flame,
+  Heart,
+  Home,
+  Lightbulb,
+  Menu,
+  Moon,
+  MoreHorizontal,
+  Plus,
+  Sparkles,
+  Sun,
+  Settings as SettingsIcon,
+  Target,
+  TrendingUp,
+  Users,
+  X,
+} from "lucide-react";
+import {
+  careerCatalog,
+  initialInterests,
+  seedTasks,
+  successOptions,
+  type StudyTask,
+  type Subject,
+} from "./data";
+
+type Page =
+  | "dashboard"
+  | "planner"
+  | "wellbeing"
+  | "progress"
+  | "careers"
+  | "parent"
+  | "success"
+  | "about"
+  | "settings";
+type Checkin = {
+  stress: number;
+  energy: number;
+  sleep: number;
+  confidence: number;
+  guilt: string;
+  date: string;
+};
+const KEY = "pathwise-v1";
+const navItems: { id: Page; label: string; icon: typeof Home }[] = [
+  { id: "dashboard", label: "Overview", icon: Home },
+  { id: "planner", label: "My plan", icon: CalendarDays },
+  { id: "wellbeing", label: "Wellbeing", icon: Heart },
+  { id: "progress", label: "Progress", icon: TrendingUp },
+  { id: "careers", label: "Career paths", icon: Compass },
+  { id: "parent", label: "Parent view", icon: Users },
+  { id: "success", label: "My success", icon: Sparkles },
+  { id: "about", label: "Why PATHWISE?", icon: CircleHelp },
+];
+const initial = {
+  tasks: seedTasks,
+  checkins: [] as Checkin[],
+  interests: initialInterests,
+  success: [] as string[],
+  showRank: false,
+  mode: "student" as "student" | "parent",
+  planner: {
+    exam: "JEE",
+    examDate: "2027-04-05",
+    hours: 5.5,
+    energy: "Medium",
+    weak: ["Physics"],
+    strong: ["Mathematics"] as string[],
+  },
+};
+type Store = typeof initial;
+function loadStore(): Store {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(KEY) || "{}",
+    ) as Partial<Store>;
+    return {
+      ...initial,
+      ...saved,
+      planner: { ...initial.planner, ...saved.planner },
+    };
+  } catch {
+    return initial;
+  }
+}
+function saveStore(store: Store) {
+  localStorage.setItem(KEY, JSON.stringify(store));
+}
+
+export default function App() {
+  const [store, setStore] = useState<Store>(loadStore);
+  const [page, setPage] = useState<Page | "landing">("landing");
+  const [mobileNav, setMobileNav] = useState(false);
+  const [toast, setToast] = useState("");
+  const [dark, setDark] = useState(false);
+  const [whatIf, setWhatIf] = useState(false);
+  useEffect(() => saveStore(store), [store]);
+  useEffect(() => {
+    if (toast) {
+      const t = setTimeout(() => setToast(""), 2800);
+      return () => clearTimeout(t);
+    }
+  }, [toast]);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const page = (event as CustomEvent<Page>).detail;
+      if (page) navigate(page);
+    };
+    window.addEventListener("pathwise-navigate", handler);
+    return () => window.removeEventListener("pathwise-navigate", handler);
+  }, []);
+  const update = (patch: Partial<Store>) =>
+    setStore((s) => ({ ...s, ...patch }));
+  const navigate = (id: Page | "landing") => {
+    setPage(id);
+    setMobileNav(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const toggleMode = () => {
+    const next = store.mode === "student" ? "parent" : "student";
+    update({ mode: next });
+    setPage(next === "parent" ? "parent" : "dashboard");
+    setToast(`${next === "parent" ? "Parent" : "Student"} view is on`);
+  };
+
+  if (page === "landing")
+    return (
+      <Landing
+        onStart={() => navigate("dashboard")}
+        onHow={() => navigate("about")}
+      />
+    );
+  return (
+    <div className={dark ? "app dark" : "app"}>
+      <Sidebar
+        active={page}
+        onNavigate={navigate}
+        mode={store.mode}
+        onMode={toggleMode}
+        onLanding={() => navigate("landing")}
+        mobile={mobileNav}
+        onClose={() => setMobileNav(false)}
+      />
+      <main className="main-area">
+        <header className="topbar">
+          <button
+            className="icon-button mobile-menu"
+            aria-label="Open navigation"
+            onClick={() => setMobileNav(true)}
+          >
+            <Menu size={19} />
+          </button>
+          <div className="crumb">
+            <span>PATHWISE</span>
+            <ChevronRight size={13} />
+            {pageTitle(page)}
+          </div>
+          <div className="top-actions">
+            <button
+              className="today-pill"
+              onClick={() => setToast("You’re viewing your plan for today.")}
+            >
+              <span className="live-dot" /> Today, 7 Oct{" "}
+              <ChevronDown size={13} />
+            </button>
+            <button
+              className="icon-button theme-button"
+              onClick={() => setDark((v) => !v)}
+              aria-label="Toggle theme"
+            >
+              {dark ? <Sun size={17} /> : <Moon size={17} />}
+            </button>
+            <button className="avatar" aria-label="Aarav’s profile">
+              A
+            </button>
+          </div>
+        </header>
+        <div key={page} className="page-content">
+          {page === "dashboard" && (
+            <Dashboard
+              store={store}
+              update={update}
+              navigate={navigate}
+              toast={setToast}
+            />
+          )}
+          {page === "planner" && (
+            <Planner store={store} update={update} toast={setToast} />
+          )}
+          {page === "wellbeing" && (
+            <Wellbeing store={store} update={update} toast={setToast} />
+          )}
+          {page === "progress" && <Progress store={store} update={update} />}
+          {page === "careers" && (
+            <Careers
+              store={store}
+              update={update}
+              whatIf={whatIf}
+              setWhatIf={setWhatIf}
+            />
+          )}
+          {page === "parent" && <ParentView store={store} />}
+          {page === "success" && <Success store={store} update={update} />}
+          {page === "about" && <About />}
+          {page === "settings" && (
+            <Settings
+              store={store}
+              update={update}
+              dark={dark}
+              setDark={setDark}
+              toast={setToast}
+            />
+          )}
+        </div>
+      </main>
+      {mobileNav && (
+        <button
+          className="scrim"
+          aria-label="Close navigation"
+          onClick={() => setMobileNav(false)}
+        />
+      )}
+      {toast && (
+        <div className="toast" role="status">
+          <CheckCircle2 size={17} />
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function pageTitle(page: string) {
+  return (
+    navItems.find((n) => n.id === page)?.label ||
+    (page === "settings" ? "Settings" : "PATHWISE")
+  );
+}
+function durationMinutes(duration: string) {
+  const hours = Number(duration.match(/(\d+)\s*h/)?.[1] || 0);
+  const minutes = Number(duration.match(/(\d+)\s*m(?:in)?/)?.[1] || 0);
+  return hours * 60 + minutes;
+}
+function formatDuration(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours ? `${hours}h ` : ""}${rest ? `${rest}m` : ""}`.trim() || "0m";
+}
+function Brand({ onClick }: { onClick?: () => void }) {
+  return (
+    <button className="brand" onClick={onClick}>
+      <span className="brand-mark">
+        <span />
+      </span>
+      <span>
+        pathwise<span className="brand-period">.</span>
+      </span>
+    </button>
+  );
+}
+
+function Landing({
+  onStart,
+  onHow,
+}: {
+  onStart: () => void;
+  onHow: () => void;
+}) {
+  return (
+    <div className="landing">
+      <nav className="landing-nav">
+        <Brand
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+        />
+        <div className="landing-links">
+          <button onClick={onHow}>Our approach</button>
+          <button onClick={onHow}>For families</button>
+          <button onClick={onHow}>Why PATHWISE</button>
+        </div>
+        <button className="button button-dark landing-signin" onClick={onStart}>
+          Open my path <ArrowRight size={16} />
+        </button>
+      </nav>
+      <section className="hero">
+        <div className="hero-copy">
+          <div className="eyebrow">
+            <span className="eyebrow-line" /> A calmer way to prepare
+          </div>
+          <h1>
+            Your future is
+            <br />
+            bigger than your{" "}
+            <span className="rank-word">
+              rank<span className="rank-spark">✳</span>
+            </span>
+          </h1>
+          <p className="hero-lede">
+            Prepare smarter. Protect your wellbeing. See more than one path
+            forward.
+          </p>
+          <div className="hero-ctas">
+            <button className="button button-dark button-lg" onClick={onStart}>
+              Build my path <ArrowRight size={17} />
+            </button>
+            <button className="button button-quiet button-lg" onClick={onHow}>
+              <span className="play-icon">▷</span> See how it works
+            </button>
+          </div>
+          <div className="hero-note">
+            <span className="avatar-stack">
+              <i>A</i>
+              <i>R</i>
+              <i>M</i>
+            </span>
+            <span>
+              Built around real student experiences
+              <br />
+              <b>Made for the whole journey</b>
+            </span>
+          </div>
+        </div>
+        <div
+          className="hero-product"
+          aria-label="Preview of PATHWISE student dashboard"
+        >
+          <div className="product-glow" />
+          <div className="preview-window">
+            <div className="preview-top">
+              <div className="preview-brand">
+                <span className="mini-mark" /> pathwise
+              </div>
+              <span className="preview-date">WED, OCT 7</span>
+              <span className="preview-avatar">A</span>
+            </div>
+            <div className="preview-body">
+              <div className="preview-welcome">
+                <div>
+                  <small>YOUR WEDNESDAY, IN FOCUS</small>
+                  <h3>
+                    Good morning, Aarav<span>.</span>
+                  </h3>
+                  <p>Make room for progress and a little breathing space.</p>
+                </div>
+                <span className="sun-icon">
+                  <Sun size={19} />
+                </span>
+              </div>
+              <div className="preview-stats">
+                <div className="preview-stat">
+                  <small>STUDY GOAL</small>
+                  <strong>
+                    3h 45m <span>/ 5h 30m</span>
+                  </strong>
+                  <div className="mini-track">
+                    <i style={{ width: "68%" }} />
+                  </div>
+                  <small className="muted-note">68% of today's plan</small>
+                </div>
+                <div className="preview-stat readiness-stat">
+                  <small>READINESS</small>
+                  <strong>
+                    Feeling steady <span className="readiness-dot">●</span>
+                  </strong>
+                  <p>Your pace is working.</p>
+                </div>
+              </div>
+              <div className="preview-insight">
+                <div className="insight-icon">
+                  <Sparkles size={16} />
+                </div>
+                <div>
+                  <small>A GENTLE NUDGE</small>
+                  <p>
+                    You have completed <b>68%</b> of today's goal. Take a
+                    30-minute recovery break before your next session.
+                  </p>
+                </div>
+                <ArrowUpRight size={15} />
+              </div>
+              <div className="preview-agenda">
+                <div>
+                  <b>Today's path</b>
+                  <span>3 of 6 complete</span>
+                </div>
+                <div className="agenda-line">
+                  <span className="agenda-check">
+                    <Check size={12} />
+                  </span>
+                  <span>Mathematics</span>
+                  <i>08:00</i>
+                </div>
+                <div className="agenda-line">
+                  <span className="agenda-check">
+                    <Check size={12} />
+                  </span>
+                  <span>Physics</span>
+                  <i>10:00</i>
+                </div>
+                <div className="agenda-line future-agenda">
+                  <span className="agenda-pip" />
+                  <span>Lunch away from your notes</span>
+                  <i>12:00</i>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="floating-note">
+            <div className="floating-icon">
+              <Heart size={15} />
+            </div>
+            <div>
+              <small>REST IS PART OF THE PLAN</small>
+              <p>
+                Your next break is in <b>25 min</b>
+              </p>
+            </div>
+          </div>
+          <div className="hero-orbit orbit-one" />
+          <div className="hero-orbit orbit-two" />
+        </div>
+      </section>
+      <section className="landing-proof">
+        <div className="proof-top">
+          <span>THE PRESSURE IS REAL</span>
+          <span className="proof-rule" />
+          <span>THE WAY THROUGH CAN BE DIFFERENT</span>
+        </div>
+        <div className="problem-grid">
+          <Problem
+            icon={<Target />}
+            title="One exam feels like everything"
+            body="A single result can start to feel like a verdict on your whole future."
+          />
+          <Problem
+            icon={<Clock3 />}
+            title="More hours aren't always better"
+            body="Longer days leave less room for sleep, learning and recovery."
+          />
+          <Problem
+            icon={<Activity />}
+            title="Comparison never switches off"
+            body="Rank lists and peer scores can drown out your own progress."
+          />
+          <Problem
+            icon={<Users />}
+            title="Marks aren't the whole picture"
+            body="Families want to help, but don't always know what support looks like."
+          />
+        </div>
+      </section>
+      <section className="approach-section">
+        <div className="approach-intro">
+          <div className="eyebrow">
+            <span className="eyebrow-line" /> THE PATHWISE APPROACH
+          </div>
+          <h2>
+            A plan that sees
+            <br />
+            the <em>whole</em> you.
+          </h2>
+          <p>
+            Good preparation is more than another study schedule. It's a rhythm
+            you can keep, with space to check in, course-correct and imagine
+            what comes next.
+          </p>
+          <button className="text-link" onClick={onHow}>
+            Why we built PATHWISE <ArrowRight size={15} />
+          </button>
+        </div>
+        <div className="approach-steps">
+          {[
+            [
+              "01",
+              "Prepare",
+              "Make a plan for the time and energy you actually have.",
+            ],
+            [
+              "02",
+              "Understand",
+              "See real learning progress beyond a mock-test score.",
+            ],
+            [
+              "03",
+              "Recover",
+              "Check in, take breaks and protect the pace you can sustain.",
+            ],
+            [
+              "04",
+              "Explore",
+              "Discover more ways to build a future you care about.",
+            ],
+          ].map(([n, t, b], i) => (
+            <div className="approach-step" key={t}>
+              <div className={`step-number step-${i}`}>{n}</div>
+              <div>
+                <h3>{t}</h3>
+                <p>{b}</p>
+              </div>
+              <ArrowRight size={16} />
+            </div>
+          ))}
+        </div>
+      </section>
+      <section className="three-questions">
+        <div className="three-heading">
+          <span>PREPARATION SHOULD ANSWER MORE THAN ONE QUESTION</span>
+          <h2>Not just, “Am I scoring enough?”</h2>
+        </div>
+        <div className="question-grid">
+          <div>
+            <span>01</span>
+            <BookOpen size={20} />
+            <h3>Am I learning?</h3>
+            <p>Build understanding that sticks, not just hours that add up.</p>
+          </div>
+          <div>
+            <span>02</span>
+            <Heart size={20} />
+            <h3>Am I coping?</h3>
+            <p>Notice what your energy is telling you before you hit empty.</p>
+          </div>
+          <div>
+            <span>03</span>
+            <Compass size={20} />
+            <h3>Do I know where I'm going?</h3>
+            <p>
+              Keep other meaningful paths visible while you work toward a goal.
+            </p>
+          </div>
+        </div>
+      </section>
+      <section className="landing-cta">
+        <div>
+          <div className="eyebrow">
+            <span className="eyebrow-line" /> BEGIN WHERE YOU ARE
+          </div>
+          <h2>
+            Preparation should build your future —<br />
+            <em>not consume it.</em>
+          </h2>
+        </div>
+        <button className="button button-dark button-lg" onClick={onStart}>
+          Start building your path <ArrowRight size={17} />
+        </button>
+      </section>
+      <footer className="landing-footer">
+        <Brand
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+        />
+        <span>Thoughtful preparation for the whole journey.</span>
+        <span>© 2026 PATHWISE · Built for real life</span>
+      </footer>
+    </div>
+  );
+}
+
+function Problem({
+  icon,
+  title,
+  body,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+}) {
+  return (
+    <article className="problem-card">
+      <span className="problem-icon">{icon}</span>
+      <h3>{title}</h3>
+      <p>{body}</p>
+    </article>
+  );
+}
+
+function Sidebar({
+  active,
+  onNavigate,
+  mode,
+  onMode,
+  onLanding,
+  mobile,
+  onClose,
+}: {
+  active: Page;
+  onNavigate: (p: Page) => void;
+  mode: "student" | "parent";
+  onMode: () => void;
+  onLanding: () => void;
+  mobile: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <aside className={`sidebar ${mobile ? "sidebar-open" : ""}`}>
+      <div className="sidebar-head">
+        <Brand onClick={onLanding} />
+        <button
+          className="icon-button sidebar-close"
+          onClick={onClose}
+          aria-label="Close navigation"
+        >
+          <X size={18} />
+        </button>
+      </div>
+      <div className="workspace-select">
+        <span className="workspace-avatar">A</span>
+        <span>
+          <b>Aarav's space</b>
+          <small>JEE · Class 12</small>
+        </span>
+        <ChevronDown size={14} />
+      </div>
+      <nav className="side-nav" aria-label="Main navigation">
+        <span className="nav-label">YOUR PATH</span>
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              className={`nav-link ${active === item.id ? "active" : ""}`}
+              onClick={() => onNavigate(item.id)}
+            >
+              <Icon size={17} strokeWidth={1.8} />
+              <span>{item.label}</span>
+              {item.id === "wellbeing" && <span className="nav-live-dot" />}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="sidebar-bottom">
+        <div className="sidebar-quote">
+          <span>“</span>
+          <p>
+            Your rank is a result.
+            <br />
+            It is not your identity.
+          </p>
+          <small>A NOTE TO YOURSELF</small>
+        </div>
+        <button className="mode-switch" onClick={onMode}>
+          <span className="mode-icon">
+            <Users size={15} />
+          </span>
+          <span>
+            <b>{mode === "student" ? "Student view" : "Parent view"}</b>
+            <small>Switch experience</small>
+          </span>
+          <ArrowRight size={15} />
+        </button>
+        <button
+          className={`settings-link ${active === "settings" ? "active" : ""}`}
+          onClick={() => onNavigate("settings")}
+        >
+          <SettingsIcon size={15} /> Settings
+        </button>
+        <button className="back-to-site" onClick={onLanding}>
+          <ArrowLeft size={14} /> PATHWISE home
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+function PageHead({
+  eyebrow,
+  title,
+  subtitle,
+  action,
+}: {
+  eyebrow: string;
+  title: React.ReactNode;
+  subtitle: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="page-head">
+      <div>
+        <div className="eyebrow">
+          <span className="eyebrow-line" />
+          {eyebrow}
+        </div>
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
+      </div>
+      {action}
+    </div>
+  );
+}
+function SectionHead({
+  title,
+  detail,
+  action,
+}: {
+  title: string;
+  detail?: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="section-head">
+      <div>
+        <h2>{title}</h2>
+        {detail && <p>{detail}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
+function Metric({
+  label,
+  value,
+  change,
+  icon: Icon,
+  tone = "",
+}: {
+  label: string;
+  value: string;
+  change?: string;
+  icon: typeof Activity;
+  tone?: string;
+}) {
+  return (
+    <div className="metric-card">
+      <div className="metric-top">
+        <span>{label}</span>
+        <span className={`metric-icon ${tone}`}>
+          <Icon size={16} />
+        </span>
+      </div>
+      <strong>{value}</strong>
+      {change && (
+        <div className="metric-change">
+          <ArrowUpRight size={13} />
+          {change}
+        </div>
+      )}
+    </div>
+  );
+}
+function Dashboard({
+  store,
+  update,
+  navigate,
+  toast,
+}: {
+  store: Store;
+  update: (p: Partial<Store>) => void;
+  navigate: (p: Page) => void;
+  toast: (s: string) => void;
+}) {
+  const done = store.tasks.filter((t) => t.done).length,
+    completedMinutes = store.tasks
+      .filter((t) => t.done && t.kind !== "break")
+      .reduce((sum, task) => sum + durationMinutes(task.duration), 0),
+    progress = Math.min(100, Math.round((completedMinutes / 330) * 100));
+  const toggle = (id: number) => {
+    const tasks = store.tasks.map((t) =>
+      t.id === id ? { ...t, done: !t.done } : t,
+    );
+    update({ tasks });
+    toast(
+      tasks.find((t) => t.id === id)?.done
+        ? "Nice work. That’s one step in your path."
+        : "Task moved back to your plan.",
+    );
+  };
+  return (
+    <>
+      <PageHead
+        eyebrow="WEDNESDAY, 7 OCTOBER"
+        title={
+          <>
+            Good morning, Aarav<span className="accent-dot">.</span>
+          </>
+        }
+        subtitle="Here's your path for today. Keep it steady, keep it yours."
+        action={
+          <button
+            className="button button-outline"
+            onClick={() => navigate("planner")}
+          >
+            <Plus size={16} /> Adjust today's plan
+          </button>
+        }
+      />
+      <div className="dash-layout">
+        <div className="dash-main">
+          <div className="metric-grid">
+            <Metric
+              label="TODAY'S STUDY GOAL"
+              value={formatDuration(completedMinutes)}
+              change={`${progress}% of your 5h 30m plan`}
+              icon={Clock3}
+            />
+            <Metric
+              label="WEEKLY CONSISTENCY"
+              value="6 days"
+              change="Your most consistent week yet"
+              icon={Flame}
+              tone="amber"
+            />
+            <Metric
+              label="READINESS"
+              value="Feeling steady"
+              change="Last check-in · this morning"
+              icon={Heart}
+              tone="coral"
+            />
+          </div>
+          <section className="panel today-panel">
+            <SectionHead
+              title="Today's path"
+              detail={`${done} of ${store.tasks.length} steps complete`}
+              action={
+                <button
+                  className="quiet-icon"
+                  aria-label="More options"
+                  onClick={() =>
+                    toast("Your full day is right here, in one calm view.")
+                  }
+                >
+                  <MoreHorizontal size={18} />
+                </button>
+              }
+            />
+            <div className="today-progress">
+              <div className="progress-track">
+                <i style={{ width: `${progress}%` }} />
+              </div>
+              <span>{progress}%</span>
+            </div>
+            <div className="timeline">
+              {store.tasks.map((task, index) => (
+                <TaskRow
+                  task={task}
+                  key={task.id}
+                  isLast={index === store.tasks.length - 1}
+                  onToggle={() => toggle(task.id)}
+                />
+              ))}
+            </div>
+            <button
+              className="text-link plan-link"
+              onClick={() => navigate("planner")}
+            >
+              Open your weekly plan <ArrowRight size={15} />
+            </button>
+          </section>
+          <div className="insight-panel">
+            <div className="insight-mark">
+              <Sparkles size={18} />
+            </div>
+            <div className="insight-content">
+              <span>PATHWISE INSIGHT</span>
+              <p>
+                Your accuracy is improving faster than your topic completion.
+                Try finishing fewer topics deeply before adding new ones.
+              </p>
+              <small>
+                Based on your recent mock reviews ·{" "}
+                <button onClick={() => navigate("progress")}>
+                  See your progress
+                </button>
+              </small>
+            </div>
+            <div className="insight-art">
+              <div className="insight-orbit">
+                <span />
+              </div>
+            </div>
+          </div>
+          <div className="bottom-cards">
+            <button
+              className="mini-action-card"
+              onClick={() => navigate("wellbeing")}
+            >
+              <span className="action-card-icon green">
+                <Heart size={17} />
+              </span>
+              <span>
+                <b>Pause for a check-in</b>
+                <small>A quick read on how you're doing</small>
+              </span>
+              <ArrowRight size={16} />
+            </button>
+            <button
+              className="mini-action-card"
+              onClick={() => navigate("careers")}
+            >
+              <span className="action-card-icon lilac">
+                <Compass size={17} />
+              </span>
+              <span>
+                <b>Explore a different path</b>
+                <small>Your future has more than one route</small>
+              </span>
+              <ArrowRight size={16} />
+            </button>
+          </div>
+        </div>
+        <aside className="dash-rail">
+          <div className="panel focus-panel">
+            <div className="rail-label">
+              TODAY AT A GLANCE <MoreHorizontal size={17} />
+            </div>
+            <div className="focus-date">
+              <b>07</b>
+              <span>
+                OCT
+                <br />
+                <small>WEDNESDAY</small>
+              </span>
+              <span className="focus-month">2026</span>
+            </div>
+            <div className="focus-line" />
+            <div className="focus-label">CURRENT FOCUS</div>
+            <div className="focus-subject">
+              <span className="subject-icon physics">Φ</span>
+              <span>
+                <b>Physics</b>
+                <small>Rotational motion</small>
+              </span>
+              <ArrowUpRight size={15} />
+            </div>
+            <div className="focus-meta">
+              <span>
+                <Clock3 size={13} /> 75 min block
+              </span>
+              <span>
+                <span className="tiny-dot" /> In progress
+              </span>
+            </div>
+          </div>
+          <div className="readiness-card">
+            <div className="readiness-card-head">
+              <span>YOUR READINESS</span>
+              <span className="readiness-status">
+                <i /> Steady
+              </span>
+            </div>
+            <div className="readiness-score">
+              <span>7</span>
+              <small>/10</small>
+              <div>
+                <b>Good energy today</b>
+                <p>Enough in the tank to focus, with room to pause.</p>
+              </div>
+            </div>
+            <div className="readiness-meta">
+              <span>ENERGY</span>
+              <b>7 / 10</b>
+              <i />
+              <span>SLEEP</span>
+              <b>7h 20m</b>
+            </div>
+            <button onClick={() => navigate("wellbeing")}>
+              Check in with yourself <ArrowRight size={14} />
+            </button>
+          </div>
+          <div className="upcoming-card">
+            <span className="rail-label">
+              COMING UP <CalendarDays size={15} />
+            </span>
+            <div className="upcoming-row">
+              <span className="upcoming-icon">
+                <Target size={17} />
+              </span>
+              <span>
+                <b>Full-length mock</b>
+                <small>Saturday, 10 Oct · 9:00 am</small>
+              </span>
+            </div>
+            <p>
+              Three days away. Your planner has time for a light review before
+              then.
+            </p>
+            <button onClick={() => navigate("planner")}>
+              View study plan <ArrowRight size={14} />
+            </button>
+          </div>
+          <div className="rank-detox-mini">
+            <div className="rank-mini-top">
+              <span className="action-card-icon peach">
+                <Sparkles size={15} />
+              </span>
+              <b>Rank Detox</b>
+              <button
+                className={`toggle ${store.showRank ? "checked" : ""}`}
+                onClick={() => update({ showRank: !store.showRank })}
+                aria-label={`${store.showRank ? "Hide" : "Show"} my rank`}
+              >
+                <i />
+              </button>
+            </div>
+            <p>
+              {store.showRank
+                ? "Rank is visible to you. Your progress tells a fuller story."
+                : "Your rank is tucked away. See the growth that a number can’t measure."}
+            </p>
+            <button
+              className="text-link"
+              onClick={() => update({ showRank: !store.showRank })}
+            >
+              {store.showRank ? "Turn rank off" : "See progress beyond rank"}{" "}
+              <ArrowRight size={13} />
+            </button>
+          </div>
+        </aside>
+      </div>
+      <div className="loop-strip">
+        <span>YOUR PREPARATION LOOP</span>
+        {[
+          "Check in",
+          "Understand",
+          "Plan",
+          "Study",
+          "Measure",
+          "Recover",
+          "Explore",
+          "Adapt",
+        ].map((x, i) => (
+          <span key={x} className={i === 2 ? "loop-current" : ""}>
+            {x}
+            {i < 7 && <i>→</i>}
+          </span>
+        ))}
+      </div>
+    </>
+  );
+}
+function TaskRow({
+  task,
+  isLast,
+  onToggle,
+}: {
+  task: StudyTask;
+  isLast: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className={`task-row ${task.done ? "task-done" : ""}`}>
+      <span className="task-time">{task.time}</span>
+      <span className={`task-dot ${task.kind} ${task.done ? "completed" : ""}`}>
+        {task.done ? (
+          <Check size={11} />
+        ) : task.kind === "break" ? (
+          <span />
+        ) : null}
+      </span>
+      <button className="task-copy" onClick={onToggle}>
+        <b>{task.title}</b>
+        <small>{task.detail}</small>
+      </button>
+      <span className="task-duration">{task.duration}</span>
+      <button
+        className={`task-check ${task.done ? "is-done" : ""}`}
+        onClick={onToggle}
+        aria-label={`${task.done ? "Mark incomplete" : "Mark complete"}: ${task.title}`}
+      >
+        {task.done ? <Check size={13} /> : <span />}
+      </button>
+      {!isLast && <i className="timeline-stem" />}
+    </div>
+  );
+}
+
+function Planner({
+  store,
+  update,
+  toast,
+}: {
+  store: Store;
+  update: (p: Partial<Store>) => void;
+  toast: (s: string) => void;
+}) {
+  const [generated, setGenerated] = useState(false);
+  const subjects: Subject[] = ["Physics", "Chemistry", "Mathematics"];
+  const plan = store.planner;
+  const setPlan = (key: string, value: unknown) =>
+    update({ planner: { ...plan, [key]: value } } as Partial<Store>);
+  const toggleSubject = (key: "weak" | "strong", subject: string) => {
+    const selected = plan[key] as string[];
+    setPlan(
+      key,
+      selected.includes(subject)
+        ? selected.filter((x) => x !== subject)
+        : [...selected, subject],
+    );
+  };
+  const generate = () => {
+    setGenerated(true);
+    toast("Your plan is ready. Every block has a reason.");
+  };
+  const total = plan.hours;
+  const phys = plan.weak.includes("Physics")
+    ? Math.round(total * 0.38 * 10) / 10
+    : Math.round(total * 0.3 * 10) / 10;
+  const chem = plan.weak.includes("Chemistry")
+    ? Math.round(total * 0.34 * 10) / 10
+    : Math.round(total * 0.28 * 10) / 10;
+  const maths = Math.round((total - phys - chem) * 10) / 10;
+  return (
+    <>
+      <PageHead
+        eyebrow="A PLAN THAT ADAPTS TO YOU"
+        title={
+          <>
+            Make a plan you can <em>keep.</em>
+          </>
+        }
+        subtitle="The best plan works with your energy, your priorities and your real life."
+      />
+      <div className="planner-grid">
+        <div className="panel planner-form">
+          <div className="form-head">
+            <div className="form-icon">
+              <CalendarDays size={18} />
+            </div>
+            <div>
+              <h2>Shape your study day</h2>
+              <p>A few details help us make the time count.</p>
+            </div>
+          </div>
+          <label className="field-label" htmlFor="exam">
+            YOUR EXAM
+          </label>
+          <select
+            id="exam"
+            value={plan.exam}
+            onChange={(e) => setPlan("exam", e.target.value)}
+            className="select-field"
+          >
+            {["JEE", "NEET", "CET", "CUET"].map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+          <label
+            className="field-label label-spaced date-label"
+            htmlFor="exam-date"
+          >
+            TARGET EXAM DATE
+          </label>
+          <input
+            className="select-field date-field"
+            id="exam-date"
+            type="date"
+            min={new Date().toISOString().slice(0, 10)}
+            value={plan.examDate}
+            onChange={(e) => setPlan("examDate", e.target.value)}
+          />
+          <div className="field-label label-spaced">
+            HOW MUCH STUDY TIME DO YOU HAVE?
+          </div>
+          <div className="hours-control">
+            <input
+              aria-label="Available focused study hours"
+              type="range"
+              min="2"
+              max="10"
+              step="0.5"
+              value={plan.hours}
+              onChange={(e) => setPlan("hours", Number(e.target.value))}
+            />
+            <div>
+              <b>{plan.hours}h</b>
+              <span>focused time, excluding breaks</span>
+            </div>
+          </div>
+          <div className="label-row label-spaced">
+            <span className="field-label">HOW'S YOUR ENERGY?</span>
+            <span className="form-hint">Choose what feels true today</span>
+          </div>
+          <div className="energy-options">
+            {["Low", "Medium", "High"].map((x, i) => (
+              <button
+                key={x}
+                className={plan.energy === x ? "selected" : ""}
+                onClick={() => setPlan("energy", x)}
+              >
+                <span>{["◒", "◉", "✳"][i]}</span>
+                {x}
+              </button>
+            ))}
+          </div>
+          <div className="label-row label-spaced">
+            <span className="field-label">WHERE WOULD SUPPORT HELP?</span>
+            <span className="form-hint">Your weaker areas</span>
+          </div>
+          <div className="chip-row">
+            {subjects.map((s) => (
+              <button
+                key={s}
+                className={`subject-chip ${plan.weak.includes(s) ? "chosen" : ""}`}
+                onClick={() => toggleSubject("weak", s)}
+              >
+                {s}
+                {plan.weak.includes(s) && <Check size={12} />}
+              </button>
+            ))}
+          </div>
+          <div className="label-row label-spaced">
+            <span className="field-label">WHAT FEELS MORE SOLID?</span>
+            <span className="form-hint">Strong areas</span>
+          </div>
+          <div className="chip-row">
+            {subjects.map((s) => (
+              <button
+                key={s}
+                className={`subject-chip ${plan.strong.includes(s) ? "chosen" : ""}`}
+                onClick={() => toggleSubject("strong", s)}
+              >
+                {s}
+                {plan.strong.includes(s) && <Check size={12} />}
+              </button>
+            ))}
+          </div>
+          <button
+            className="button button-dark generate-button"
+            onClick={generate}
+          >
+            <Sparkles size={16} /> Build my study plan <ArrowRight size={16} />
+          </button>
+          <small className="privacy-note">
+            Your preferences stay on this device.
+          </small>
+        </div>
+        <div className="planner-results">
+          <div className="result-top">
+            <div>
+              <div className="eyebrow">
+                <span className="eyebrow-line" />
+                {generated ? "YOUR PLAN IS READY" : "A STARTING POINT"}
+              </div>
+              <h2>Wednesday, 7 Oct</h2>
+              <p>
+                {plan.hours} focused hours · {plan.energy.toLowerCase()} energy
+                · {plan.exam} prep ·{" "}
+                {new Date(plan.examDate + "T12:00:00").toLocaleDateString(
+                  "en-GB",
+                  { day: "numeric", month: "short", year: "numeric" },
+                )}
+              </p>
+            </div>
+            <div className="result-date">
+              <b>07</b>
+              <span>OCT</span>
+            </div>
+          </div>
+          <div className="plan-summary">
+            <span>
+              <i />
+              {plan.weak.length
+                ? `Extra focus: ${plan.weak.join(", ")}`
+                : "Balanced across your subjects"}
+            </span>
+            <span>
+              <Clock3 size={13} /> Includes 50 min recovery
+            </span>
+          </div>
+          <div className="generated-plan">
+            {[
+              {
+                subject: plan.weak[0] || "Physics",
+                time: `${phys}h`,
+                topic:
+                  plan.weak[0] === "Physics"
+                    ? "Rotational motion · core concepts"
+                    : "Mechanics · mixed practice",
+                color: "physics",
+                why: "More time for a weaker topic",
+              },
+              {
+                subject: plan.weak[1] || "Chemistry",
+                time: `${chem}h`,
+                topic:
+                  plan.weak[1] === "Chemistry"
+                    ? "Organic reactions · active recall"
+                    : "Organic revision · spaced recall",
+                color: "chemistry",
+                why: "Short retrieval practice helps it stick",
+              },
+              {
+                subject: plan.strong[0] || "Mathematics",
+                time: `${maths}h`,
+                topic:
+                  plan.strong[0] === "Mathematics"
+                    ? "Probability · timed set"
+                    : "Mixed practice · maintain fluency",
+                color: "math",
+                why: "A focused block maintains momentum",
+              },
+            ].map((item, i) => (
+              <div className="generated-row" key={i}>
+                <span className={`plan-subject-icon ${item.color}`}>
+                  {["Φ", "⌬", "∑"][i]}
+                </span>
+                <div className="generated-info">
+                  <div>
+                    <b>{item.subject}</b>
+                    <span>{item.time}</span>
+                  </div>
+                  <p>{item.topic}</p>
+                  <small>{item.why}</small>
+                </div>
+                <button
+                  className="quiet-icon"
+                  aria-label="Plan block details"
+                  onClick={() => toast(item.why)}
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            ))}
+            <div className="generated-row recovery-row">
+              <span className="plan-subject-icon recovery">♡</span>
+              <div className="generated-info">
+                <div>
+                  <b>Recovery & breaks</b>
+                  <span>50 min</span>
+                </div>
+                <p>A real lunch and a screen-free reset</p>
+                <small>Recovery supports the work you put in.</small>
+              </div>
+            </div>
+          </div>
+          <div className="why-plan">
+            <div className="why-icon">
+              <Lightbulb size={17} />
+            </div>
+            <div>
+              <b>Why this plan?</b>
+              <p>
+                {plan.weak.length
+                  ? `We gave ${plan.weak.join(" and ")} more deliberate attention because you flagged ${plan.weak.length === 1 ? "it" : "them"} as a place to grow. Your stronger areas get a shorter recall block to keep knowledge fresh. `
+                  : "We balanced your subjects evenly and used your available study window without filling every minute. "}
+                A lower-energy day would shorten the hardest blocks first — not
+                remove your recovery time.
+              </p>
+            </div>
+          </div>
+          <button
+            className="button button-dark save-plan"
+            onClick={() => {
+              update({ tasks: seedTasks });
+              toast("Plan added to your PATHWISE day.");
+            }}
+          >
+            Add plan to my day <ArrowRight size={15} />
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Wellbeing({
+  store,
+  update,
+  toast,
+}: {
+  store: Store;
+  update: (p: Partial<Store>) => void;
+  toast: (s: string) => void;
+}) {
+  const latest = store.checkins[store.checkins.length - 1];
+  const [stress, setStress] = useState(4),
+    [energy, setEnergy] = useState(7),
+    [sleep, setSleep] = useState(7.3),
+    [confidence, setConfidence] = useState(7),
+    [guilt, setGuilt] = useState("Sometimes"),
+    [submitted, setSubmitted] = useState(false);
+  const submit = () => {
+    const entry = {
+      stress,
+      energy,
+      sleep,
+      confidence,
+      guilt,
+      date: new Date().toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+      }),
+    };
+    update({ checkins: [...store.checkins, entry] });
+    setSubmitted(true);
+    toast("Check-in saved. Thanks for checking in with yourself.");
+  };
+  const recent = store.checkins.slice(-7);
+  return (
+    <>
+      <PageHead
+        eyebrow="A MOMENT FOR YOU"
+        title={
+          <>
+            How are you <em>actually</em> doing?
+          </>
+        }
+        subtitle="A quick check-in can help you decide what kind of day to make."
+        action={
+          <span className="private-pill">
+            <span /> Just for you
+          </span>
+        }
+      />
+      <div className="wellbeing-layout">
+        <div className="panel checkin-panel">
+          <div className="checkin-intro">
+            <span className="checkin-orb">
+              <Heart size={21} />
+            </span>
+            <div>
+              <h2>Take a breath. Check in.</h2>
+              <p>
+                There are no right answers. This is a moment for you, not a
+                measure of you.
+              </p>
+            </div>
+          </div>
+          {submitted ? (
+            <div className="submitted-box">
+              <div className="submitted-check">
+                <Check size={21} />
+              </div>
+              <h3>Thank you for checking in.</h3>
+              <p>
+                You shared that your stress is{" "}
+                {stress <= 4
+                  ? "manageable"
+                  : stress <= 7
+                    ? "a bit elevated"
+                    : "high today"}{" "}
+                and your energy is{" "}
+                {energy >= 6 ? "in a good place" : "running low"}. Let’s let
+                that shape the rest of the day.
+              </p>
+              <button className="text-link" onClick={() => setSubmitted(false)}>
+                Update this check-in <ArrowRight size={14} />
+              </button>
+            </div>
+          ) : (
+            <>
+              <SliderQuestion
+                label="How stressed do you feel today?"
+                low="Completely calm"
+                high="Extremely stressed"
+                value={stress}
+                set={setStress}
+              />
+              <SliderQuestion
+                label="How energetic do you feel?"
+                low="Exhausted"
+                high="Energised"
+                value={energy}
+                set={setEnergy}
+              />
+              <SliderQuestion
+                label="How confident do you feel about your prep?"
+                low="Not confident"
+                high="Very confident"
+                value={confidence}
+                set={setConfidence}
+              />
+              <div className="sleep-question">
+                <div className="question-title">
+                  <b>How well did you sleep?</b>
+                  <span>
+                    {Math.floor(sleep)}h {Math.round((sleep % 1) * 60)}m
+                  </span>
+                </div>
+                <input
+                  aria-label="Hours of sleep"
+                  type="range"
+                  min="3"
+                  max="10"
+                  step="0.1"
+                  value={sleep}
+                  onChange={(e) => setSleep(Number(e.target.value))}
+                />
+                <div className="range-captions">
+                  <span>3 hours</span>
+                  <span>10 hours</span>
+                </div>
+              </div>
+              <div className="guilt-question">
+                <div className="question-title">
+                  <b>Do you feel guilty when taking a break?</b>
+                  <span>Be honest with yourself</span>
+                </div>
+                <div className="guilt-options">
+                  {["Never", "Sometimes", "Often"].map((x) => (
+                    <button
+                      className={guilt === x ? "selected" : ""}
+                      key={x}
+                      onClick={() => setGuilt(x)}
+                    >
+                      {x}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="checkin-disclaimer">
+                <CircleHelp size={14} /> This is a self-reflection tool, not a
+                medical assessment.
+              </div>
+              <button
+                className="button button-dark submit-checkin"
+                onClick={submit}
+              >
+                Save my check-in <ArrowRight size={15} />
+              </button>
+            </>
+          )}
+        </div>
+        <div className="wellbeing-side">
+          <div className="panel trend-panel">
+            <SectionHead
+              title="Your week, gently"
+              detail="A reflection, not a scorecard"
+            />
+            <div className="week-bars">
+              {(recent.length
+                ? recent
+                : [
+                    { stress: 4, energy: 6, sleep: 7 },
+                    { stress: 5, energy: 7, sleep: 7.3 },
+                    { stress: 3, energy: 7, sleep: 8 },
+                    { stress: 6, energy: 5, sleep: 6 },
+                    { stress: 4, energy: 8, sleep: 7.5 },
+                    { stress: 5, energy: 6, sleep: 7 },
+                    { stress: 4, energy: 7, sleep: 7.3 },
+                  ]
+              )
+                .slice(-7)
+                .map((c, i) => (
+                  <div className="week-day" key={i}>
+                    <div className="week-bar-track">
+                      <i
+                        style={{
+                          height: `${Math.max(15, Math.min(95, c.energy * 10))}%`,
+                        }}
+                      />
+                      <b
+                        style={{
+                          bottom: `${Math.max(5, Math.min(90, c.stress * 10))}%`,
+                        }}
+                      />
+                    </div>
+                    <span>{["M", "T", "W", "T", "F", "S", "S"][i]}</span>
+                  </div>
+                ))}
+            </div>
+            <div className="chart-legend">
+              <span>
+                <i className="legend-green" /> Energy
+              </span>
+              <span>
+                <i className="legend-coral" /> Stress
+              </span>
+            </div>
+          </div>
+          <div className="gentle-insight">
+            <span className="insight-mark">
+              <Sparkles size={17} />
+            </span>
+            <div>
+              <span>A KIND REMINDER</span>
+              <p>
+                {guilt === "Often" || latest?.guilt === "Often"
+                  ? "Rest is part of the work. A break is not something you need to earn."
+                  : stress >= 7
+                    ? "Today may be a day to make the plan smaller, not push harder."
+                    : "Protect the rhythm that’s working. You don’t need to add more hours today."}
+              </p>
+            </div>
+          </div>
+          <div className="recommendations">
+            <div className="eyebrow">
+              <span className="eyebrow-line" />A FEW OPTIONS
+            </div>
+            {[
+              [
+                "Reduce tonight’s workload by 30 minutes",
+                "A smaller finish can help you reset.",
+              ],
+              [
+                "Take a proper break after your next block",
+                "Step outside or do something unrelated.",
+              ],
+              [
+                "Skip another mock test today",
+                "You can review what you’ve already learned.",
+              ],
+            ].map((x, i) => (
+              <div className="recommendation" key={i}>
+                <span>{["01", "02", "03"][i]}</span>
+                <p>
+                  <b>{x[0]}</b>
+                  <small>{x[1]}</small>
+                </p>
+                <Check size={14} />
+              </div>
+            ))}
+          </div>
+          <p className="checkin-footnote">
+            Only you can see your individual check-ins. You choose what to
+            share.
+          </p>
+        </div>
+      </div>
+    </>
+  );
+}
+function SliderQuestion({
+  label,
+  low,
+  high,
+  value,
+  set,
+}: {
+  label: string;
+  low: string;
+  high: string;
+  value: number;
+  set: (v: number) => void;
+}) {
+  return (
+    <div className="slider-question">
+      <div className="question-title">
+        <b>{label}</b>
+        <span className="answer-bubble">
+          {value}
+          <small>/10</small>
+        </span>
+      </div>
+      <input
+        aria-label={label}
+        type="range"
+        min="1"
+        max="10"
+        value={value}
+        onChange={(e) => set(Number(e.target.value))}
+      />
+      <div className="range-captions">
+        <span>{low}</span>
+        <span>{high}</span>
+      </div>
+    </div>
+  );
+}
+
+function Progress({
+  store,
+  update,
+}: {
+  store: Store;
+  update: (p: Partial<Store>) => void;
+}) {
+  return (
+    <>
+      <PageHead
+        eyebrow="YOUR GROWTH, IN CONTEXT"
+        title={
+          <>
+            Progress is more than a <em>number.</em>
+          </>
+        }
+        subtitle="A wider view of how you're learning, showing up and taking care of yourself."
+        action={
+          <div className="rank-toggle-wrap">
+            <span>Rank Detox</span>
+            <button
+              className={`toggle ${store.showRank ? "checked" : ""}`}
+              onClick={() => update({ showRank: !store.showRank })}
+              aria-label="Toggle rank visibility"
+            >
+              <i />
+            </button>
+            <small>{store.showRank ? "Rank on" : "Rank off"}</small>
+          </div>
+        }
+      />
+      <div className="progress-top-grid">
+        <div className="mastery-card">
+          <div className="mastery-copy">
+            <span>CONCEPT MASTERY</span>
+            <strong>
+              76<span>%</span>
+            </strong>
+            <p>You're building a solid foundation, one concept at a time.</p>
+            <span className="mastery-change">
+              <ArrowUpRight size={14} /> 4 points this month
+            </span>
+          </div>
+          <div className="mastery-visual">
+            <div className="mastery-ring">
+              <div>
+                <span>76%</span>
+                <small>MASTERY</small>
+              </div>
+            </div>
+            <span className="mastery-label">
+              A strong base
+              <br />
+              to build on
+            </span>
+          </div>
+        </div>
+        <div className="beyond-card">
+          <div className="beyond-top">
+            <span className="action-card-icon peach">
+              <Sparkles size={16} />
+            </span>
+            <span>PROGRESS BEYOND RANK</span>
+          </div>
+          {[
+            { n: "Consistency", v: 84 },
+            { n: "Confidence", v: 71 },
+            { n: "Recovery", v: 68 },
+          ].map((x) => (
+            <div className="beyond-row" key={x.n}>
+              <div>
+                <span>{x.n}</span>
+                <b>{x.v}%</b>
+              </div>
+              <div className="progress-track">
+                <i style={{ width: `${x.v}%` }} />
+              </div>
+            </div>
+          ))}
+          {store.showRank && (
+            <div className="rank-exposed">
+              <span>YOUR LAST MOCK RANK</span>
+              <b>12,493</b>
+              <small>
+                A single test snapshot. The picture above shows more.
+              </small>
+            </div>
+          )}
+          <div className="rank-note">
+            <span className="rank-note-mark">✳</span>Rank can show where you
+            stood in one test. It can’t show what you’ve learned, how resilient
+            you are, or which path is right for you.
+          </div>
+        </div>
+      </div>
+      <div className="analytics-grid">
+        <div className="panel chart-panel">
+          <SectionHead
+            title="Marks vs effort"
+            detail="Recent weeks · a fuller picture of your prep"
+          />
+          <div className="chart-keys">
+            <span>
+              <i className="chart-key marks" />
+              Mock accuracy
+            </span>
+            <span>
+              <i className="chart-key effort" />
+              Study hours
+            </span>
+          </div>
+          <div className="dual-chart">
+            <div className="y-labels">
+              <span>100</span>
+              <span>75</span>
+              <span>50</span>
+              <span>25</span>
+              <span>0</span>
+            </div>
+            <svg
+              viewBox="0 0 620 210"
+              preserveAspectRatio="none"
+              role="img"
+              aria-label="Mock accuracy rises gradually while study hours stay steady"
+            >
+              <defs>
+                <linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stopColor="#678d78" stopOpacity=".2" />
+                  <stop offset="1" stopColor="#678d78" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              {[18, 58, 98, 138, 178].map((y) => (
+                <line
+                  key={y}
+                  x1="0"
+                  y1={y}
+                  x2="620"
+                  y2={y}
+                  stroke="#eceeea"
+                  strokeDasharray="3 5"
+                />
+              ))}
+              <path
+                d="M8 130 C60 115 73 130 112 107 S177 108 214 91 S280 101 316 77 S382 89 418 60 S480 74 520 50 S581 55 610 31"
+                fill="none"
+                stroke="#6e967d"
+                strokeWidth="3"
+                strokeLinecap="round"
+              />
+              <path
+                d="M8 130 C60 115 73 130 112 107 S177 108 214 91 S280 101 316 77 S382 89 418 60 S480 74 520 50 S581 55 610 31 L610 180 L8 180Z"
+                fill="url(#chartFill)"
+              />
+              <path
+                d="M8 100 C60 89 77 101 112 94 S177 82 214 89 S280 71 316 80 S382 75 418 67 S480 78 520 65 S581 72 610 63"
+                fill="none"
+                stroke="#c8a875"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeDasharray="5 4"
+              />
+              {[
+                [8, 130],
+                [112, 107],
+                [214, 91],
+                [316, 77],
+                [418, 60],
+                [520, 50],
+                [610, 31],
+              ].map(([cx, cy], i) => (
+                <circle
+                  key={i}
+                  cx={cx}
+                  cy={cy}
+                  r="4"
+                  fill="#6e967d"
+                  stroke="white"
+                  strokeWidth="2"
+                />
+              ))}
+            </svg>
+            <div className="x-labels">
+              <span>Sep 9</span>
+              <span>Sep 16</span>
+              <span>Sep 23</span>
+              <span>Sep 30</span>
+              <span>Oct 7</span>
+            </div>
+          </div>
+          <div className="chart-caption">
+            <span className="caption-dot" /> Your accuracy rose while study time
+            stayed more balanced. That's progress worth noticing.
+          </div>
+        </div>
+        <div className="panel subject-panel">
+          <SectionHead
+            title="Subject strengths"
+            detail="Confidence and understanding, at a glance"
+          />
+          {[
+            { n: "Mathematics", v: 82, icon: "∑", cls: "math" },
+            { n: "Physics", v: 74, icon: "Φ", cls: "physics" },
+            { n: "Chemistry", v: 69, icon: "⌬", cls: "chemistry" },
+          ].map((s) => (
+            <div className="subject-strength" key={s.n}>
+              <span className={`plan-subject-icon ${s.cls}`}>{s.icon}</span>
+              <span>
+                <b>{s.n}</b>
+                <small>Concept mastery</small>
+              </span>
+              <div className="strength-track">
+                <i style={{ width: `${s.v}%` }} />
+              </div>
+              <b>{s.v}%</b>
+            </div>
+          ))}
+          <button
+            className="text-link"
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("pathwise-navigate", { detail: "planner" }),
+              )
+            }
+          >
+            Focus on a subject <ArrowRight size={14} />
+          </button>
+        </div>
+        <div className="panel trend-chart-card">
+          <SectionHead
+            title="Stress vs study load"
+            detail="Your week is giving you useful information"
+          />
+          <div className="trend-chart">
+            <div className="trend-col">
+              <i style={{ height: "65%" }} />
+              <b style={{ height: "30%" }} />
+              <span>M</span>
+            </div>
+            <div className="trend-col">
+              <i style={{ height: "76%" }} />
+              <b style={{ height: "43%" }} />
+              <span>T</span>
+            </div>
+            <div className="trend-col today">
+              <i style={{ height: "61%" }} />
+              <b style={{ height: "27%" }} />
+              <span>W</span>
+            </div>
+            <div className="trend-col">
+              <i style={{ height: "82%" }} />
+              <b style={{ height: "59%" }} />
+              <span>T</span>
+            </div>
+            <div className="trend-col">
+              <i style={{ height: "57%" }} />
+              <b style={{ height: "23%" }} />
+              <span>F</span>
+            </div>
+            <div className="trend-col">
+              <i style={{ height: "48%" }} />
+              <b style={{ height: "20%" }} />
+              <span>S</span>
+            </div>
+            <div className="trend-col">
+              <i style={{ height: "69%" }} />
+              <b style={{ height: "34%" }} />
+              <span>S</span>
+            </div>
+          </div>
+          <div className="chart-legend">
+            <span>
+              <i className="legend-green" />
+              Study load
+            </span>
+            <span>
+              <i className="legend-coral" />
+              Stress
+            </span>
+          </div>
+        </div>
+        <div className="takeaway-card">
+          <span className="takeaway-spark">
+            <Sparkles size={17} />
+          </span>
+          <div>
+            <span>AN OBSERVATION, NOT A JUDGEMENT</span>
+            <h3>More hours didn't mean more progress this week.</h3>
+            <p>
+              You studied 18% more, but your accuracy improved by 2%. Your
+              strongest practice happened on days with slightly fewer hours and
+              a real break in between.
+            </p>
+          </div>
+          <ArrowUpRight size={17} />
+        </div>
+      </div>
+      <div className="rank-bottom-note">
+        <span>YOUR GROWTH BELONGS TO YOU.</span>
+        <p>
+          There’s no leaderboard here. Your path only has to make sense for you.
+        </p>
+      </div>
+    </>
+  );
+}
+
+function Careers({
+  store,
+  update,
+  whatIf,
+  setWhatIf,
+}: {
+  store: Store;
+  update: (p: Partial<Store>) => void;
+  whatIf: boolean;
+  setWhatIf: (v: boolean) => void;
+}) {
+  const allTags = Array.from(
+    new Set(careerCatalog.flatMap((c) => c.tags)),
+  ).sort();
+  const [active, setActive] = useState("All");
+  const tags = store.interests;
+  const results = useMemo(
+    () =>
+      careerCatalog.filter((c) =>
+        active === "All" ? true : c.tags.includes(active),
+      ),
+    [active],
+  );
+  const toggle = (name: string) =>
+    update({
+      interests: tags.includes(name)
+        ? tags.filter((x) => x !== name)
+        : [...tags, name],
+    });
+  return (
+    <>
+      <PageHead
+        eyebrow="A FUTURE WITH ROOM TO MOVE"
+        title={
+          <>
+            Your future is bigger than <em>one exam.</em>
+          </>
+        }
+        subtitle="Your interests can lead to more than one destination. Start with what makes you curious."
+        action={
+          <span className="explore-counter">
+            <Compass size={15} /> {tags.length} interests selected
+          </span>
+        }
+      />
+      <div className="career-intro">
+        <div>
+          <span className="field-label">WHAT ARE YOU CURIOUS ABOUT?</span>
+          <p>Choose a few. You can change them any time.</p>
+        </div>
+        <button className="text-link" onClick={() => update({ interests: [] })}>
+          Clear selection
+        </button>
+      </div>
+      <div className="interest-pills">
+        {allTags.map((tag) => (
+          <button
+            key={tag}
+            className={`interest-pill ${tags.includes(tag) ? "picked" : ""}`}
+            onClick={() => toggle(tag)}
+          >
+            {tags.includes(tag) && <Check size={13} />} {tag}
+          </button>
+        ))}
+      </div>
+      <div className="career-layout">
+        <section className="career-main">
+          <SectionHead
+            title={active === "All" ? "Paths to explore" : `${active} pathways`}
+            detail={`${results.length} starting points · not predictions`}
+            action={
+              <select
+                className="sort-select"
+                value={active}
+                onChange={(e) => setActive(e.target.value)}
+                aria-label="Filter career pathways"
+              >
+                <option>All</option>
+                {allTags.map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </select>
+            }
+          />
+          <div className="career-cards">
+            {results.map((career, i) => (
+              <article className="career-card" key={career.name}>
+                <div className="career-card-top">
+                  <span className={`career-symbol c-${i % 5}`}>
+                    {career.icon}
+                  </span>
+                  <button
+                    className={`save-career ${tags.includes(career.tags[0]) ? "saved" : ""}`}
+                    onClick={() => toggle(career.tags[0])}
+                    aria-label={`Toggle ${career.tags[0]} interest`}
+                  >
+                    <Heart
+                      size={16}
+                      fill={
+                        tags.includes(career.tags[0]) ? "currentColor" : "none"
+                      }
+                    />
+                  </button>
+                </div>
+                <h3>{career.name}</h3>
+                <div className="career-tags">
+                  {career.tags.slice(0, 3).map((t) => (
+                    <span key={t}>{t}</span>
+                  ))}
+                </div>
+                <div className="career-card-block">
+                  <span>WHAT YOU MIGHT STUDY</span>
+                  <p>{career.study}</p>
+                </div>
+                <div className="career-card-block route-block">
+                  <span>POSSIBLE ENTRY ROUTES</span>
+                  <ul>
+                    {career.routes.slice(0, 3).map((x) => (
+                      <li key={x}>{x}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="career-card-bottom">
+                  <div>
+                    <span>POSSIBLE ROLES</span>
+                    <p>{career.roles.join(" · ")}</p>
+                  </div>
+                  <button
+                    className="career-open"
+                    onClick={() => setWhatIf(true)}
+                    aria-label={`Explore what if scenarios for ${career.name}`}
+                  >
+                    <ArrowUpRight size={15} />
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+          <p className="career-disclaimer">
+            These are conversation starters, not admissions guidance or
+            predictions. Routes and eligibility vary by institution; check
+            official course information before making decisions. *Counselling
+            roles may require additional qualifications.
+          </p>
+        </section>
+        <aside className="career-rail">
+          <div className="one-goal-card">
+            <div className="rail-label">
+              ONE GOAL <ArrowRight size={13} /> MULTIPLE PATHS
+            </div>
+            <div className="goal-node">
+              <span className="goal-icon">
+                <Dna size={17} />
+              </span>
+              <div>
+                <b>Engineering</b>
+                <small>
+                  A subject area you can approach from many directions
+                </small>
+              </div>
+            </div>
+            <div className="path-branches">
+              {[
+                "JEE",
+                "State CET",
+                "University entrance",
+                "Related degree + specialisation",
+              ].map((x, i) => (
+                <div key={x}>
+                  <span className="branch-dot">
+                    {i < 3 ? "0" + (i + 1) : "↗"}
+                  </span>
+                  <span>{x}</span>
+                  {i === 0 && <i>COMMON ROUTE</i>}
+                </div>
+              ))}
+            </div>
+            <p>
+              Different routes suit different people. Explore options with a
+              teacher or counsellor.
+            </p>
+          </div>
+          <button className="what-if-card" onClick={() => setWhatIf(true)}>
+            <span className="what-if-spark">
+              <Sparkles size={17} />
+            </span>
+            <div>
+              <span>TRY A WHAT IF?</span>
+              <h3>What if my target college doesn't work out?</h3>
+              <p>
+                Imagine a few routes forward. Keep possibility in the picture.
+              </p>
+            </div>
+            <ArrowUpRight size={16} />
+          </button>
+          <div className="career-prompt">
+            <span className="action-card-icon lilac">
+              <Compass size={16} />
+            </span>
+            <p>
+              <b>Curiosity counts.</b>
+              <br />
+              Your interests can change. Keep exploring as you learn more about
+              yourself.
+            </p>
+          </div>
+        </aside>
+      </div>
+      {whatIf && <WhatIfModal onClose={() => setWhatIf(false)} />}
+    </>
+  );
+}
+function WhatIfModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="whatif-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="whatif-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button className="modal-close" onClick={onClose} aria-label="Close">
+          <X size={18} />
+        </button>
+        <div className="eyebrow">
+          <span className="eyebrow-line" />
+          MORE THAN ONE WAY FORWARD
+        </div>
+        <h2 id="whatif-title">What if your target college doesn't work out?</h2>
+        <p className="whatif-lede">
+          One result can change your route. It doesn't erase the future you can
+          build.
+        </p>
+        <div className="scenario-root">
+          <span>YOUR INTEREST IN ENGINEERING</span>
+          <div className="scenario-line" />
+        </div>
+        <div className="scenario-paths">
+          {[
+            ["A", "Your target college", "The first route you imagined."],
+            [
+              "B",
+              "Another strong university",
+              "Compare programmes, support and fit.",
+            ],
+            [
+              "C",
+              "A different entrance route",
+              "State CET or university admissions.",
+            ],
+            [
+              "D",
+              "Related degree, new specialisation",
+              "Build toward an area you care about.",
+            ],
+          ].map((x) => (
+            <div className="scenario-path" key={x[0]}>
+              <span>{x[0]}</span>
+              <div>
+                <b>{x[1]}</b>
+                <small>{x[2]}</small>
+              </div>
+              <ArrowRight size={14} />
+            </div>
+          ))}
+        </div>
+        <div className="whatif-foot">
+          <span className="insight-mark">
+            <Sparkles size={16} />
+          </span>
+          <p>
+            These are starting points for exploration. Talk with a trusted
+            teacher or counsellor about the routes that fit your situation.
+          </p>
+        </div>
+        <button className="button button-dark modal-done" onClick={onClose}>
+          Keep exploring <ArrowRight size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ParentView({ store }: { store: Store }) {
+  return (
+    <>
+      <PageHead
+        eyebrow="A CLEARER WAY TO SHOW UP"
+        title={
+          <>
+            Support, don't <em>supervise.</em>
+          </>
+        }
+        subtitle="See the broader picture, then make room for a conversation."
+        action={
+          <div className="privacy-pill">
+            <Users size={15} /> Shared by Aarav · 7 Oct
+          </div>
+        }
+      />
+      <div className="parent-layout">
+        <section className="parent-main">
+          <div className="parent-welcome">
+            <span className="parent-welcome-icon">
+              <Heart size={20} />
+            </span>
+            <div>
+              <span>A NOTE FOR FAMILIES</span>
+              <h2>Being present matters more than having all the answers.</h2>
+              <p>
+                This view shares patterns Aarav has chosen to make visible.
+                Individual study tasks and private check-ins stay private.
+              </p>
+            </div>
+          </div>
+          <div className="parent-metrics">
+            <div>
+              <span>WEEKLY CONSISTENCY</span>
+              <b>
+                6 <small>days</small>
+              </b>
+              <p>
+                <i />A steady week so far
+              </p>
+            </div>
+            <div>
+              <span>ENERGY TREND</span>
+              <b>Mostly steady</b>
+              <p>
+                <i />A little lower yesterday
+              </p>
+            </div>
+            <div>
+              <span>ACADEMIC PROGRESS</span>
+              <b>Moving forward</b>
+              <p>
+                <i />
+                Concept mastery at 76%
+              </p>
+            </div>
+          </div>
+          <div className="parent-trends">
+            <SectionHead
+              title="A week in perspective"
+              detail="Patterns to help you understand, not monitor"
+            />
+            <div className="parent-bars">
+              {[68, 74, 58, 82, 62, 76, 66].map((v, i) => (
+                <div className="parent-bar" key={i}>
+                  <div>
+                    <i style={{ height: `${v}%` }} />
+                    <b style={{ height: `${Math.max(18, v - 27)}%` }} />
+                  </div>
+                  <small>{["M", "T", "W", "T", "F", "S", "S"][i]}</small>
+                </div>
+              ))}
+            </div>
+            <div className="chart-legend">
+              <span>
+                <i className="legend-green" />
+                Energy
+              </span>
+              <span>
+                <i className="legend-coral" />
+                Stress
+              </span>
+              <span>
+                <i className="legend-gold" />
+                Sleep
+              </span>
+            </div>
+          </div>
+          <div className="what-child-needs">
+            <span className="insight-mark">
+              <Sparkles size={17} />
+            </span>
+            <div>
+              <span>WHAT YOUR CHILD MAY NEED RIGHT NOW</span>
+              <h3>Academic progress is stable.</h3>
+              <p>
+                {store.checkins.length
+                  ? "The most recent check-in suggests making room for recovery."
+                  : "Aarav is building consistency. A calm check-in may help you learn what support feels useful."}
+              </p>
+              <div className="suggested-ask">
+                “How can I make this week easier for you?”
+              </div>
+            </div>
+          </div>
+        </section>
+        <aside className="parent-side">
+          <div className="conversation-card">
+            <span className="eyebrow">
+              <span className="eyebrow-line" />
+              HELPFUL CONVERSATIONS
+            </span>
+            <h2>Small changes in how we ask can change what we hear.</h2>
+            <div className="conversation-example good">
+              <span className="conversation-tag">TRY THIS</span>
+              <p>“How are you feeling about the preparation?”</p>
+              <CheckCircle2 size={16} />
+            </div>
+            <div className="conversation-example avoid">
+              <span className="conversation-tag">LET THIS GO</span>
+              <p>“How many hours did you study?”</p>
+              <X size={16} />
+            </div>
+            <div className="conversation-example good">
+              <span className="conversation-tag">TRY THIS</span>
+              <p>“Where do you feel you need support?”</p>
+              <CheckCircle2 size={16} />
+            </div>
+            <div className="conversation-example avoid">
+              <span className="conversation-tag">LET THIS GO</span>
+              <p>“Your cousin is already ahead.”</p>
+              <X size={16} />
+            </div>
+          </div>
+          <div className="parent-privacy">
+            <span>
+              <Users size={16} />
+            </span>
+            <div>
+              <b>Respect their space</b>
+              <p>
+                This view shares broad patterns, not a minute-by-minute log.
+                Trust makes honest conversations possible.
+              </p>
+            </div>
+          </div>
+          <div className="parent-reflection">
+            <span className="action-card-icon peach">
+              <Heart size={15} />
+            </span>
+            <p>
+              <b>One thing they might remember</b>
+              <br />
+              “I know your future is more than one exam result.”
+            </p>
+          </div>
+        </aside>
+      </div>
+    </>
+  );
+}
+
+function Success({
+  store,
+  update,
+}: {
+  store: Store;
+  update: (p: Partial<Store>) => void;
+}) {
+  const dimensions = [
+    ["LEARNING", 78],
+    ["CONSISTENCY", 84],
+    ["WELLBEING", 71],
+    ["CURIOSITY", 92],
+    ["CONFIDENCE", 67],
+    ["RESILIENCE", 80],
+    ["CAREER AWARENESS", 64],
+  ];
+  const toggle = (x: string) =>
+    update({
+      success: store.success.includes(x)
+        ? store.success.filter((y) => y !== x)
+        : [...store.success, x],
+    });
+  return (
+    <>
+      <PageHead
+        eyebrow="A DEFINITION YOU GET TO WRITE"
+        title={
+          <>
+            Success is not <em>one number.</em>
+          </>
+        }
+        subtitle="Your future can hold many things that matter. See what you're building, in your own way."
+      />
+      <div className="success-layout">
+        <div className="success-left">
+          <div className="panel constellation-panel">
+            <div className="constellation-head">
+              <div>
+                <span className="field-label">YOUR SUCCESS PROFILE</span>
+                <h2>
+                  A path that's <em>uniquely yours.</em>
+                </h2>
+              </div>
+              <span className="private-pill">
+                <span /> Only you
+              </span>
+            </div>
+            <div className="constellation">
+              <div className="constellation-orbit orbit-a" />
+              <div className="constellation-orbit orbit-b" />
+              <div className="constellation-core">
+                <span>
+                  YOUR
+                  <br />
+                  PATH
+                </span>
+                <small>IN PROGRESS</small>
+              </div>
+              {dimensions.map((x, i) => (
+                <div className={`constellation-node node-${i}`} key={x[0]}>
+                  <span className="node-star">✳</span>
+                  <span className="node-label">{x[0]}</span>
+                  <b>{x[1]}%</b>
+                </div>
+              ))}
+              <svg
+                className="constellation-lines"
+                viewBox="0 0 500 370"
+                aria-hidden="true"
+              >
+                <path d="M250 185L250 30 M250 185L405 90 M250 185L430 230 M250 185L335 335 M250 185L165 335 M250 185L65 235 M250 185L95 85" />
+              </svg>
+            </div>
+            <div className="constellation-caption">
+              <span>
+                <i />A few strengths showing up in your journey
+              </span>
+              <span>Not a ranking. Just a reflection.</span>
+            </div>
+          </div>
+          <div className="success-quote">
+            <span>“</span>
+            <div>
+              <p>You are building your own path.</p>
+              <small>No comparison. No finish line you didn't choose.</small>
+            </div>
+            <span className="quote-spark">✳</span>
+          </div>
+        </div>
+        <aside className="success-side">
+          <div className="panel definition-panel">
+            <span className="field-label">WHAT DOES SUCCESS MEAN TO YOU?</span>
+            <p>
+              Pick the things that feel meaningful. Your answer can change as
+              you do.
+            </p>
+            <div className="success-options">
+              {successOptions.map((x, i) => (
+                <button
+                  className={store.success.includes(x) ? "chosen" : ""}
+                  key={x}
+                  onClick={() => toggle(x)}
+                >
+                  <span className="success-option-icon">
+                    {["↗", "◈", "⌁", "♡", "☼", "✳", "＋", "○"][i]}
+                  </span>
+                  {x}
+                  {store.success.includes(x) && <Check size={14} />}
+                </button>
+              ))}
+            </div>
+            <div className="selection-count">
+              {store.success.length} selected <span>·</span> Choose as many as
+              fit
+            </div>
+          </div>
+          <div className="definition-result">
+            <span>YOUR DEFINITION OF SUCCESS</span>
+            {store.success.length ? (
+              <p>{store.success.join(" · ")}</p>
+            ) : (
+              <p className="empty-definition">
+                Your words will show up here as you choose.
+              </p>
+            )}
+            <span className="result-note">
+              <Sparkles size={13} /> It's okay for this to change.
+            </span>
+          </div>
+          <button
+            className="button button-outline reflect-button"
+            onClick={() => toggle("Learning continuously")}
+          >
+            Add learning to my path <Plus size={15} />
+          </button>
+        </aside>
+      </div>
+    </>
+  );
+}
+
+function About() {
+  const stages = [
+    [
+      "EMPATHISE",
+      "Listen for lived experience.",
+      "Students named stress, guilt and a packed school-plus-coaching day. Parents described financial pressure and uncertainty. Tutors felt pressure to keep pace with the batch.",
+      "✳",
+    ],
+    [
+      "DEFINE",
+      "Find the human need underneath.",
+      "The project research surfaced time pressure and comparison culture, connected by the belief that one exam rank determines lifelong success.",
+      "◎",
+    ],
+    [
+      "HOW MIGHT WE",
+      "Open up better questions.",
+      "How might students prepare without sacrificing wellbeing? How might families see real progress? How might success become broader than rank?",
+      "↗",
+    ],
+    [
+      "THE SOLUTION",
+      "Make room for the whole journey.",
+      "PATHWISE brings sustainable planning, self-reflection, progress beyond rank and career exploration into one calm place.",
+      "◈",
+    ],
+  ];
+  const mapping = [
+    ["TIME PRESSURE", "A plan shaped around available energy"],
+    ["EMOTIONAL STRESS", "Private, supportive self-check-ins"],
+    ["RANK CULTURE", "Progress measures beyond rank"],
+    ["PARENTAL PRESSURE", "A shared view built for conversation"],
+    ["NARROW SUCCESS", "Career exploration and “What if?” paths"],
+  ];
+  return (
+    <>
+      <PageHead
+        eyebrow="THE RESEARCH BEHIND THE PRODUCT"
+        title={
+          <>
+            Preparation that starts with <em>understanding.</em>
+          </>
+        }
+        subtitle="PATHWISE is a design-thinking response to the real experiences behind entrance-exam pressure."
+      />
+      <div className="about-hero">
+        <div className="about-hero-mark">
+          <span>✳</span>
+          <i />
+          <i />
+          <i />
+        </div>
+        <div>
+          <span>FROM EMPATHY TO A DIFFERENT KIND OF TOOL</span>
+          <h2>
+            Not another way to push harder.
+            <br />
+            <em>A way to see the whole person.</em>
+          </h2>
+          <p>
+            Our starting point: a Class 12 aspirant needs a sustainable way to
+            prepare, and a wider sense of what success can look like — while the
+            pressure of coaching pace, family expectations and peer comparison
+            narrows the view.
+          </p>
+        </div>
+      </div>
+      <div className="thinking-steps">
+        {stages.map((s, i) => (
+          <article className="thinking-stage" key={s[0]}>
+            <div className="thinking-stage-top">
+              <span>{s[0]}</span>
+              <b>0{i + 1}</b>
+            </div>
+            <span className="thinking-glyph">{s[3]}</span>
+            <h2>{s[1]}</h2>
+            <p>{s[2]}</p>
+            {i < 3 && <ArrowDownRight className="stage-arrow" size={20} />}
+          </article>
+        ))}
+      </div>
+      <div className="research-to-product">
+        <div className="research-intro">
+          <span className="eyebrow">
+            <span className="eyebrow-line" />
+            THE RESEARCH, MADE VISIBLE
+          </span>
+          <h2>
+            Every feature answers
+            <br />a human need.
+          </h2>
+          <p>
+            The project began with empathy maps, observation and conversations
+            with students, families, tutors and exam authorities. These patterns
+            shaped the product.
+          </p>
+        </div>
+        <div className="mapping-list">
+          {mapping.map((m, i) => (
+            <div className="mapping-row" key={m[0]}>
+              <span className="mapping-number">0{i + 1}</span>
+              <span className="mapping-need">{m[0]}</span>
+              <ArrowRight size={14} />
+              <span className="mapping-solution">{m[1]}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="about-statement">
+        <span className="statement-mark">“</span>
+        <p>
+          Your rank is a result.
+          <br />
+          <em>It is not your identity.</em>
+        </p>
+        <span>THE PATHWISE PROMISE</span>
+      </div>
+      <div className="about-source">
+        Based on the Entrance Exams Design Thinking project · Empathise and
+        Define stages
+      </div>
+    </>
+  );
+}
+
+function Settings({
+  store,
+  update,
+  dark,
+  setDark,
+  toast,
+}: {
+  store: Store;
+  update: (p: Partial<Store>) => void;
+  dark: boolean;
+  setDark: (v: boolean) => void;
+  toast: (s: string) => void;
+}) {
+  return (
+    <>
+      <PageHead
+        eyebrow="YOUR SPACE, YOUR CHOICES"
+        title={
+          <>
+            A few things, <em>your way.</em>
+          </>
+        }
+        subtitle="Keep PATHWISE feeling like a place that works for you."
+      />
+      <div className="settings-layout">
+        <section className="panel settings-panel">
+          <div className="settings-section">
+            <span className="field-label">APPEARANCE</span>
+            <div className="setting-row">
+              <span className="settings-icon">
+                <Sun size={16} />
+              </span>
+              <div>
+                <b>Dark appearance</b>
+                <small>Choose a calmer look for your screen.</small>
+              </div>
+              <button
+                className={`toggle ${dark ? "checked" : ""}`}
+                aria-label="Toggle dark appearance"
+                onClick={() => setDark(!dark)}
+              >
+                <i />
+              </button>
+            </div>
+          </div>
+          <div className="settings-section">
+            <span className="field-label">YOUR PATH</span>
+            <div className="setting-row">
+              <span className="settings-icon">
+                <Sparkles size={16} />
+              </span>
+              <div>
+                <b>Rank Detox</b>
+                <small>
+                  {store.showRank
+                    ? "Rank can appear in progress views."
+                    : "Keep the focus on progress beyond rank."}
+                </small>
+              </div>
+              <button
+                className={`toggle ${store.showRank ? "checked" : ""}`}
+                aria-label="Toggle Rank Detox"
+                onClick={() => update({ showRank: !store.showRank })}
+              >
+                <i />
+              </button>
+            </div>
+            <div className="setting-row">
+              <span className="settings-icon">
+                <Users size={16} />
+              </span>
+              <div>
+                <b>Current experience</b>
+                <small>
+                  {store.mode === "student"
+                    ? "Student view · Aarav’s workspace"
+                    : "Parent view · shared weekly patterns"}
+                </small>
+              </div>
+              <button
+                className="button button-outline setting-switch"
+                onClick={() => {
+                  const mode = store.mode === "student" ? "parent" : "student";
+                  update({ mode });
+                  toast(
+                    `${mode === "parent" ? "Parent" : "Student"} view is on`,
+                  );
+                }}
+              >
+                Switch <ArrowRight size={13} />
+              </button>
+            </div>
+          </div>
+          <div className="settings-section">
+            <span className="field-label">YOUR DATA</span>
+            <div className="data-summary">
+              <span>
+                <b>{store.tasks.length}</b>
+                <small>day plan steps</small>
+              </span>
+              <span>
+                <b>{store.checkins.length}</b>
+                <small>private check-ins</small>
+              </span>
+              <span>
+                <b>{store.interests.length}</b>
+                <small>career interests</small>
+              </span>
+              <span>
+                <b>{store.success.length}</b>
+                <small>success values</small>
+              </span>
+            </div>
+            <p className="settings-note">
+              <span className="live-dot" /> Your preferences stay in this
+              browser. PATHWISE doesn't send them to a server.
+            </p>
+            <button
+              className="reset-button"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Reset PATHWISE to its fictional demo data? Your saved check-ins and choices on this device will be cleared.",
+                  )
+                ) {
+                  localStorage.removeItem(KEY);
+                  update(initial);
+                  setDark(false);
+                  toast("PATHWISE has been reset to the demo.");
+                }
+              }}
+            >
+              <span>
+                <X size={14} />
+              </span>
+              <b>Reset local demo data</b>
+              <small>Clear saved check-ins, plans and preferences.</small>
+              <ArrowRight size={14} />
+            </button>
+          </div>
+        </section>
+        <aside className="settings-aside">
+          <div className="settings-principle">
+            <span className="insight-mark">
+              <Heart size={17} />
+            </span>
+            <span className="field-label">DESIGNED AROUND YOU</span>
+            <h2>Your pace is allowed to change.</h2>
+            <p>
+              These settings shape your experience. They never change your
+              worth, your progress or the number of futures open to you.
+            </p>
+          </div>
+          <div className="settings-meta">
+            <span>DEMO PROFILE</span>
+            <p>Aarav · Class 12 · {store.planner.exam}</p>
+            <small>Fictional example for the PATHWISE product demo.</small>
+          </div>
+        </aside>
+      </div>
+    </>
+  );
+}
